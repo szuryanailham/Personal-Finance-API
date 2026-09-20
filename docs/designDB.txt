@@ -1,0 +1,49 @@
+
+version 1 :
+
+
+┌──────────────────────────┐
+│          USER            │
+├──────────────────────────┤
+│ id                       │
+│ first_name               │
+│ last_name                │
+│ email UNIQUE             │
+│ password                 │
+│ created_at               │
+│ updated_at               │
+└────────────┬─────────────┘
+             │
+             │ 1:N
+             ▼
+┌──────────────────────────┐
+│       TRANSACTION        │
+├──────────────────────────┤
+│ id                       │
+│ transaction_code UNIQUE  │
+│ user_id FK               │
+│ category_id FK           │
+│ amount                   │
+│ description              │
+│ transaction_date         │
+│ created_at               │
+│ updated_at               │
+└────────────┬─────────────┘
+             │
+             │ N:1
+             ▼
+┌──────────────────────────┐
+│        CATEGORY          │
+├──────────────────────────┤
+│ id                       │
+│ name                     │
+│ type                     │
+│ created_at               │
+│ updated_at               │
+└──────────────────────────┘
+
+
+id UUID PRIMARY KEY,
+transaction_code NOT NULL UNIQUE
+user_id Forent_key
+category_di fo

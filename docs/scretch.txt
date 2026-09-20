@@ -1,0 +1,12 @@
+todo list :
+
+1. create dto for user registration 
+
+2. creating dto web response
+
+3. creating service for resigstion
+
+4. creating controller for registraion  
+
+5. creating testing registraion
+
