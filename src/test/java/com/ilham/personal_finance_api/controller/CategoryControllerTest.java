@@ -27,6 +27,7 @@ import com.ilham.personal_finance_api.model.CreateCategoryRequest.CategoryType;
 import com.ilham.personal_finance_api.model.CreateCategoryResponse;
 import com.ilham.personal_finance_api.model.UpdateCategoryRequest;
 import com.ilham.personal_finance_api.repository.CategoryRepository;
+import com.ilham.personal_finance_api.repository.TransactionRepository;
 import com.ilham.personal_finance_api.repository.UserRepository;
 import com.ilham.personal_finance_api.security.BCrypt;
 
@@ -39,6 +40,9 @@ public class CategoryControllerTest {
 
     @Autowired 
     private CategoryRepository categoryRepository;
+
+    @Autowired 
+    private TransactionRepository transactionRepository;
     @Autowired 
     private ObjectMapper objectMapper;
 
@@ -52,6 +56,7 @@ public class CategoryControllerTest {
 
     @BeforeEach
     void setUp() {
+     transactionRepository.deleteAll();
       categoryRepository.deleteAll();
        userRepository.deleteAll();
         user = new User();
@@ -182,7 +187,7 @@ void testGetSingleCategorySuccess()  throws Exception {
 
 
 @Test
-void testGetPaginationBadRequest() throws Exception {
+void testGetCategoryPaginationBadRequest() throws Exception {
 
     int skip = 0;
 
@@ -332,9 +337,9 @@ void testUpdateCategorySuccess() throws Exception {
     category.setUser(user);
     category.setType(CategoryType.EXPENSE.name());
     categoryRepository.save(category);
-    CreateCategoryRequest request = new CreateCategoryRequest();
+    UpdateCategoryRequest request = new UpdateCategoryRequest();
     request.setName("Ilham");
-    request.setType(CategoryType.INCOME);
+    request.setType(UpdateCategoryRequest.CategoryType.INCOME);
 
     mockMvc.perform(
             put("/api/categories/" + category.getId())
@@ -347,10 +352,22 @@ void testUpdateCategorySuccess() throws Exception {
             status().isOk()
         )
         .andDo(result -> {
-            System.out.println("STATUS: " + result.getResponse().getStatus());
-            System.out.println("BODY: " + result.getResponse().getContentAsString());
+
+            WebResponse<CategoryResponse> response = objectMapper.readValue(
+                result.getResponse().getContentAsString(),
+                new TypeReference<WebResponse<CategoryResponse>>() {}
+            );
+
+            assertNotNull(response);
+            assertNotNull(response.getData());
+            assertEquals("Ilham", response.getData().getName());
+            assertEquals("INCOME", response.getData().getType());
+            assertNull(response.getErrors());
         });
+
 }
+
+
 
 
 }

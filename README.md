@@ -56,6 +56,10 @@ A REST API for tracking and managing personal finances — income, expenses, tra
 | POST   | `/api/auth/sign-up`     | Register a new user         | Public   |
 | POST   | `/api/auth/login`       | Log in a user                | Public   |
 | POST   | `/api/transaction`      | Create a new transaction    | Required |
+| GET    | `/api/transaction/{transactionCode}` | Get transaction detail | Required |
+| GET    | `/api/transaction`      | List transactions (paginated) | Required |
+| PATCH  | `/api/transaction/{transactionCode}` | Update a transaction   | Required |
+| DELETE | `/api/transaction/{transactionCode}` | Delete a transaction (soft delete) | Required |
 | POST   | `/api/categories`       | Create a new category       | Required |
 | GET    | `/api/categories/{id}`  | Get category detail         | Required |
 | GET    | `/api/categories`       | List categories             | Required |
