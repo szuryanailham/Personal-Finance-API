@@ -1,4 +1,4 @@
-package com.ilham.personal_finance_api.model;
+package com.ilham.personal_finance_api.dto;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;

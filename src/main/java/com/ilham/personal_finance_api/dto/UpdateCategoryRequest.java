@@ -1,4 +1,4 @@
-package com.ilham.personal_finance_api.model;
+package com.ilham.personal_finance_api.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -19,11 +19,6 @@ public class UpdateCategoryRequest {
     private String name;
 
     @NotNull (message = "Type of Category is required")
-    private CategoryType type;
-
-    public enum CategoryType {
-        EXPENSE,
-        INCOME
-    }
+    private TransactionType type;
 
 }

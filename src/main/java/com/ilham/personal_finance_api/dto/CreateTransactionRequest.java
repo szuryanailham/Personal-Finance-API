@@ -1,4 +1,4 @@
-package com.ilham.personal_finance_api.model;
+package com.ilham.personal_finance_api.dto;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -6,20 +6,14 @@ import java.util.UUID;
 
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.Getter;
+import lombok.Setter;
 
+@Getter
+@Setter
+public class CreateTransactionRequest {
 
-@Data 
-@NoArgsConstructor 
-@AllArgsConstructor 
-@Builder 
-
-public class UpdateTransactionRequest {
-
-    @NotNull(message = "Transaction Name is required")
+     @NotNull(message = "Transaction Name is required")
      @Size(max = 100, message = "Name of Transaction must not exceed 100 characters")
     private String transactonName;
 
@@ -33,6 +27,4 @@ public class UpdateTransactionRequest {
 
     @NotNull(message = "Date is required")
     private LocalDate date;
-
-
 }

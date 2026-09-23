@@ -7,8 +7,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.ilham.personal_finance_api.entity.User;
-import com.ilham.personal_finance_api.model.LoginUserRequest;
-import com.ilham.personal_finance_api.model.TokenResponse;
+import com.ilham.personal_finance_api.dto.LoginUserRequest;
+import com.ilham.personal_finance_api.dto.TokenResponse;
 import com.ilham.personal_finance_api.repository.UserRepository;
 import com.ilham.personal_finance_api.security.BCrypt;
 

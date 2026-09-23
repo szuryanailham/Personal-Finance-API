@@ -13,8 +13,9 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.ilham.personal_finance_api.entity.User;
-import com.ilham.personal_finance_api.model.RegisterUserRequest;
-import com.ilham.personal_finance_api.model.WebResponse;
+import com.ilham.personal_finance_api.dto.RegisterUserRequest;
+import com.ilham.personal_finance_api.dto.WebResponse;
+import com.ilham.personal_finance_api.AbstractIntegrationTest;
 import com.ilham.personal_finance_api.repository.UserRepository;
 
 import tools.jackson.core.type.TypeReference;
@@ -22,7 +23,7 @@ import tools.jackson.databind.ObjectMapper;
 
 @SpringBootTest
 @AutoConfigureMockMvc
-public class UserControllerTest {
+public class UserControllerTest extends AbstractIntegrationTest {
 
     @Autowired
     private UserRepository userRepository;

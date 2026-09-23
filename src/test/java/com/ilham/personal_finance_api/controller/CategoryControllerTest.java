@@ -20,12 +20,13 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import com.ilham.personal_finance_api.entity.Category;
 import com.ilham.personal_finance_api.entity.User;
-import com.ilham.personal_finance_api.model.CategoryResponse;
-import com.ilham.personal_finance_api.model.CreateCategoryRequest;
-import com.ilham.personal_finance_api.model.WebResponse;
-import com.ilham.personal_finance_api.model.CreateCategoryRequest.CategoryType;
-import com.ilham.personal_finance_api.model.CreateCategoryResponse;
-import com.ilham.personal_finance_api.model.UpdateCategoryRequest;
+import com.ilham.personal_finance_api.dto.CategoryResponse;
+import com.ilham.personal_finance_api.dto.CreateCategoryRequest;
+import com.ilham.personal_finance_api.dto.WebResponse;
+import com.ilham.personal_finance_api.dto.TransactionType;
+import com.ilham.personal_finance_api.dto.CreateCategoryResponse;
+import com.ilham.personal_finance_api.dto.UpdateCategoryRequest;
+import com.ilham.personal_finance_api.AbstractIntegrationTest;
 import com.ilham.personal_finance_api.repository.CategoryRepository;
 import com.ilham.personal_finance_api.repository.TransactionRepository;
 import com.ilham.personal_finance_api.repository.UserRepository;
@@ -35,8 +36,8 @@ import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 
 @SpringBootTest
-@AutoConfigureMockMvc 
-public class CategoryControllerTest {
+@AutoConfigureMockMvc
+public class CategoryControllerTest extends AbstractIntegrationTest {
 
     @Autowired 
     private CategoryRepository categoryRepository;
@@ -73,14 +74,14 @@ public class CategoryControllerTest {
 void testCreateCategoryDuplicate()  throws Exception {
     Category category = new Category();
     category.setName("test");
-    category.setType(CategoryType.INCOME.name());
+    category.setType(TransactionType.INCOME.name());
 
     categoryRepository.save(category);
 
     CreateCategoryRequest request = new CreateCategoryRequest();
 
     request.setName("test");
-    request.setType(CategoryType.INCOME);
+    request.setType(TransactionType.INCOME);
 
 
      mockMvc.perform(
@@ -88,7 +89,7 @@ void testCreateCategoryDuplicate()  throws Exception {
                     .accept(MediaType.APPLICATION_JSON)
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(objectMapper.writeValueAsString(request))
-                    .header("X-API-TOKEN","test")
+                    .header("Authorization", "Bearer test")
 
     ).andExpectAll(status().isConflict()).andDo(result -> {
          WebResponse<String> response = objectMapper.readValue(
@@ -104,14 +105,14 @@ void testCreateCategoryDuplicate()  throws Exception {
 void testCreateCategoryBadRequst() throws Exception {
       CreateCategoryRequest request = new CreateCategoryRequest();
     request.setName("");
-    request.setType(CategoryType.INCOME);
+    request.setType(TransactionType.INCOME);
 
     mockMvc.perform(
         post("/api/categories")
                     .accept(MediaType.APPLICATION_JSON)
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(objectMapper.writeValueAsString(request))
-                    .header("X-API-TOKEN","test")
+                    .header("Authorization", "Bearer test")
 
     ).andExpectAll(status().isBadRequest()).andDo(result -> {
          WebResponse<String> response = objectMapper.readValue(
@@ -126,14 +127,14 @@ void testCreateCategoryBadRequst() throws Exception {
 void testCreateCategorySuccess() throws Exception {
     CreateCategoryRequest request = new CreateCategoryRequest();
     request.setName("test");
-    request.setType(CategoryType.INCOME);
+    request.setType(TransactionType.INCOME);
 
      mockMvc.perform(
         post("/api/categories")
        .accept(MediaType.APPLICATION_JSON)
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(objectMapper.writeValueAsString(request))
-                    .header("X-API-TOKEN","test")
+                    .header("Authorization", "Bearer test")
     ).andExpectAll(status().isOk()).andDo(result -> {
          WebResponse<CreateCategoryResponse> response = objectMapper.readValue(
     result.getResponse().getContentAsString(),
@@ -156,7 +157,7 @@ void testGetSingleCategoryNotFound() throws Exception {
             get("/api/categories/" + UUID.randomUUID())
                     .accept(MediaType.APPLICATION_JSON)
                     .contentType(MediaType.APPLICATION_JSON)
-                    .header("X-API-TOKEN","test")
+                    .header("Authorization", "Bearer test")
         ).andExpectAll(status().isNotFound())
         .andDo(result-> {
             WebResponse<String> response = objectMapper.readValue(result.getResponse().getContentAsString(), new TypeReference<>() {});
@@ -169,13 +170,13 @@ void testGetSingleCategorySuccess()  throws Exception {
     Category category = new Category();
     category.setName("belanja");
     category.setUser(user);
-    category.setType(CategoryType.EXPENSE.name());
+    category.setType(TransactionType.EXPENSE.name());
     categoryRepository.save(category);
       mockMvc.perform(
             get("/api/categories/" + category.getId())
                     .accept(MediaType.APPLICATION_JSON)
                     .contentType(MediaType.APPLICATION_JSON)
-                    .header("X-API-TOKEN","test")
+                    .header("Authorization", "Bearer test")
         ).andExpectAll(status().isOk())
         .andDo(result-> {
             WebResponse<CategoryResponse> response = objectMapper.readValue(result.getResponse().getContentAsString(), new TypeReference<>() {});
@@ -195,7 +196,7 @@ void testGetCategoryPaginationBadRequest() throws Exception {
             get("/api/categories/" + skip)
                     .accept(MediaType.APPLICATION_JSON)
                     .contentType(MediaType.APPLICATION_JSON)
-                    .header("X-API-TOKEN", "test")
+                    .header("Authorization", "Bearer test")
         )
         .andExpect(status().isBadRequest())
         .andDo(result -> {
@@ -223,9 +224,9 @@ void testGetPaginationSuccessRequest() throws Exception {
         category.setUser(user);
 
         if (i < 5) {
-            category.setType(CategoryType.EXPENSE.name());
+            category.setType(TransactionType.EXPENSE.name());
         } else {
-            category.setType(CategoryType.INCOME.name());
+            category.setType(TransactionType.INCOME.name());
         }
 
         categoryRepository.save(category);
@@ -236,7 +237,7 @@ void testGetPaginationSuccessRequest() throws Exception {
                     .param("skip", String.valueOf(skip))
                     .param("limit", String.valueOf(limit))
                     .accept(MediaType.APPLICATION_JSON)
-                    .header("X-API-TOKEN", "test")
+                    .header("Authorization", "Bearer test")
         )
         .andExpect(status().isOk())
         .andDo(result -> {
@@ -262,7 +263,7 @@ void testDeleteCategoryNotFound() throws Exception {
     mockMvc.perform(
             delete("/api/categories/invalid-uuid")
                     .accept(MediaType.APPLICATION_JSON)
-                    .header("X-API-TOKEN", "test")
+                    .header("Authorization", "Bearer test")
         )
         .andExpect(status().isBadRequest())
         .andDo(result -> {
@@ -281,14 +282,14 @@ void testDeleteCategorySuccess() throws Exception {
         Category category = new Category();
         category.setName("test");
         category.setUser(user);
-        category.setType(CategoryType.EXPENSE.name());
+        category.setType(TransactionType.EXPENSE.name());
         categoryRepository.save(category);
 
           mockMvc.perform(
             delete("/api/categories/" + category.getId())
                     .accept(MediaType.APPLICATION_JSON)
                     .contentType(MediaType.APPLICATION_JSON)
-                    .header("X-API-TOKEN","test")
+                    .header("Authorization", "Bearer test")
         ).andExpectAll(status().isOk()).andDo(
             result -> {
                 WebResponse<String> response = objectMapper.readValue(result.getResponse().getContentAsString(), new TypeReference<>() {});
@@ -304,12 +305,12 @@ void testUpdateCategoryBadRequest() throws Exception {
     Category category = new Category();
      category.setName("test");
      category.setUser(user);
-     category.setType(CategoryType.EXPENSE.name());
+     category.setType(TransactionType.EXPENSE.name());
     categoryRepository.save(category);
 
      UpdateCategoryRequest request = new UpdateCategoryRequest();
     request.setName("");
-      category.setType(CategoryType.INCOME.name());
+      category.setType(TransactionType.INCOME.name());
 
 
     mockMvc.perform(
@@ -317,7 +318,7 @@ void testUpdateCategoryBadRequest() throws Exception {
       .accept(MediaType.APPLICATION_JSON)
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(objectMapper.writeValueAsString(request))
-                    .header("X-API-TOKEN","test")
+                    .header("Authorization", "Bearer test")
     ) .andExpectAll(
             status().isBadRequest()
         ).andDo(result -> {
@@ -335,18 +336,18 @@ void testUpdateCategorySuccess() throws Exception {
     Category category = new Category();
     category.setName("test");
     category.setUser(user);
-    category.setType(CategoryType.EXPENSE.name());
+    category.setType(TransactionType.EXPENSE.name());
     categoryRepository.save(category);
     UpdateCategoryRequest request = new UpdateCategoryRequest();
     request.setName("Ilham");
-    request.setType(UpdateCategoryRequest.CategoryType.INCOME);
+    request.setType(TransactionType.INCOME);
 
     mockMvc.perform(
             put("/api/categories/" + category.getId())
                 .accept(MediaType.APPLICATION_JSON)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request))
-                .header("X-API-TOKEN", "test")
+                .header("Authorization", "Bearer test")
         )
         .andExpectAll(
             status().isOk()

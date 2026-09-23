@@ -1,8 +1,10 @@
 package com.ilham.personal_finance_api.controller;
 
+import java.time.LocalDate;
 import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -12,12 +14,14 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import com.ilham.personal_finance_api.entity.User;
-import com.ilham.personal_finance_api.model.CreateTransactionRequest;
-import com.ilham.personal_finance_api.model.CreateTransactionResponse;
-import com.ilham.personal_finance_api.model.PaginationResponse;
-import com.ilham.personal_finance_api.model.TransactionResponse;
-import com.ilham.personal_finance_api.model.UpdateTransactionRequest;
-import com.ilham.personal_finance_api.model.WebResponse;
+import com.ilham.personal_finance_api.dto.CreateTransactionRequest;
+import com.ilham.personal_finance_api.dto.CreateTransactionResponse;
+import com.ilham.personal_finance_api.dto.PaginationResponse;
+import com.ilham.personal_finance_api.dto.TransactionFilter;
+import com.ilham.personal_finance_api.dto.TransactionResponse;
+import com.ilham.personal_finance_api.dto.TransactionType;
+import com.ilham.personal_finance_api.dto.UpdateTransactionRequest;
+import com.ilham.personal_finance_api.dto.WebResponse;
 import com.ilham.personal_finance_api.services.TransactionService;
 import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
@@ -73,10 +77,19 @@ public class TransactionController {
 public WebResponse<List<TransactionResponse>> getAll(
         User user,
         @RequestParam int skip,
-        @RequestParam int limit
+        @RequestParam int limit,
+        @RequestParam(required = false) String search,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+        @RequestParam(required = false) TransactionType type
 ) {
+    TransactionFilter filter = TransactionFilter.builder()
+            .search(search)
+            .date(date)
+            .type(type)
+            .build();
+
     Page<TransactionResponse> transaction =
-            transactionService.getAll(user, skip, limit);
+            transactionService.getAll(user, skip, limit, filter);
 
     return WebResponse.<List<TransactionResponse>>builder()
             .data(transaction.getContent())

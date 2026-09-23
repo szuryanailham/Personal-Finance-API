@@ -29,8 +29,13 @@ public class UserArgumentResolver implements  HandlerMethodArgumentResolver {
     @Override 
     public Object resolveArgument(MethodParameter parameter, ModelAndViewContainer mavContainer, NativeWebRequest webRequest , WebDataBinderFactory binderFactory) {
        HttpServletRequest servletRequest =(HttpServletRequest) webRequest.getNativeRequest();
-       String token = servletRequest.getHeader("X-API-TOKEN");
-       if(token == null) {
+       String authorizationHeader = servletRequest.getHeader("Authorization");
+       if(authorizationHeader == null || !authorizationHeader.startsWith("Bearer ")) {
+        throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unauthorized");
+       }
+
+       String token = authorizationHeader.substring("Bearer ".length()).trim();
+       if(token.isBlank()) {
         throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unauthorized");
        }
 

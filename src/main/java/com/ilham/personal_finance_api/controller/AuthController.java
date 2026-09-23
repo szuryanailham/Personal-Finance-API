@@ -5,9 +5,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.ilham.personal_finance_api.model.LoginUserRequest;
-import com.ilham.personal_finance_api.model.TokenResponse;
-import com.ilham.personal_finance_api.model.WebResponse;
+import com.ilham.personal_finance_api.dto.LoginUserRequest;
+import com.ilham.personal_finance_api.dto.TokenResponse;
+import com.ilham.personal_finance_api.dto.WebResponse;
 import com.ilham.personal_finance_api.services.AuthService;
 
 @RestController 

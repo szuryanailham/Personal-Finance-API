@@ -1,4 +1,4 @@
-package com.ilham.personal_finance_api.model;
+package com.ilham.personal_finance_api.dto;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;

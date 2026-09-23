@@ -10,7 +10,7 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import org.springframework.web.server.ResponseStatusException;
 
 import com.ilham.personal_finance_api.exception.DataAlreadyExistedException;
-import com.ilham.personal_finance_api.model.WebResponse;
+import com.ilham.personal_finance_api.dto.WebResponse;
 
 @RestControllerAdvice
 public class ErrorController {

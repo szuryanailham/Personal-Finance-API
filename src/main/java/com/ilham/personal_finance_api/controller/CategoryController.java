@@ -16,12 +16,12 @@ import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.ilham.personal_finance_api.entity.User;
-import com.ilham.personal_finance_api.model.CategoryResponse;
-import com.ilham.personal_finance_api.model.CreateCategoryRequest;
-import com.ilham.personal_finance_api.model.CreateCategoryResponse;
-import com.ilham.personal_finance_api.model.PaginationResponse;
-import com.ilham.personal_finance_api.model.UpdateCategoryRequest;
-import com.ilham.personal_finance_api.model.WebResponse;
+import com.ilham.personal_finance_api.dto.CategoryResponse;
+import com.ilham.personal_finance_api.dto.CreateCategoryRequest;
+import com.ilham.personal_finance_api.dto.CreateCategoryResponse;
+import com.ilham.personal_finance_api.dto.PaginationResponse;
+import com.ilham.personal_finance_api.dto.UpdateCategoryRequest;
+import com.ilham.personal_finance_api.dto.WebResponse;
 import com.ilham.personal_finance_api.services.CategoryService;
 
 import jakarta.validation.Valid;

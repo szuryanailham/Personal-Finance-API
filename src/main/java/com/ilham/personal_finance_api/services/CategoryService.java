@@ -14,10 +14,10 @@ import org.springframework.data.domain.Page;
 import com.ilham.personal_finance_api.entity.Category;
 import com.ilham.personal_finance_api.entity.User;
 import com.ilham.personal_finance_api.exception.DataAlreadyExistedException;
-import com.ilham.personal_finance_api.model.CategoryResponse;
-import com.ilham.personal_finance_api.model.CreateCategoryRequest;
-import com.ilham.personal_finance_api.model.CreateCategoryResponse;
-import com.ilham.personal_finance_api.model.UpdateCategoryRequest;
+import com.ilham.personal_finance_api.dto.CategoryResponse;
+import com.ilham.personal_finance_api.dto.CreateCategoryRequest;
+import com.ilham.personal_finance_api.dto.CreateCategoryResponse;
+import com.ilham.personal_finance_api.dto.UpdateCategoryRequest;
 import com.ilham.personal_finance_api.repository.CategoryRepository;;
 
 

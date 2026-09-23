@@ -6,20 +6,24 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+
+import com.ilham.personal_finance_api.dto.CategoryResponse;
+import com.ilham.personal_finance_api.dto.CreateTransactionRequest;
+import com.ilham.personal_finance_api.dto.CreateTransactionResponse;
+import com.ilham.personal_finance_api.dto.TransactionFilter;
+import com.ilham.personal_finance_api.dto.TransactionResponse;
+import com.ilham.personal_finance_api.dto.UpdateTransactionRequest;
 import com.ilham.personal_finance_api.entity.Category;
 import com.ilham.personal_finance_api.entity.Transaction;
 import com.ilham.personal_finance_api.entity.User;
-import com.ilham.personal_finance_api.model.CategoryResponse;
-import com.ilham.personal_finance_api.model.CreateTransactionRequest;
-import com.ilham.personal_finance_api.model.CreateTransactionResponse;
-import com.ilham.personal_finance_api.model.TransactionResponse;
-import com.ilham.personal_finance_api.model.UpdateTransactionRequest;
 import com.ilham.personal_finance_api.repository.CategoryRepository;
 import com.ilham.personal_finance_api.repository.TransactionRepository;
+import com.ilham.personal_finance_api.repository.TransactionSpecification;
 
 @Service
 public class TransactionService {
@@ -146,7 +150,8 @@ public TransactionResponse get(User user , String transactionCode) {
 
 
  @Transactional (readOnly = true)
- public Page<TransactionResponse> getAll(User user, int skip, int limit) {
+ public Page<com.ilham.personal_finance_api.dto.TransactionResponse> getAll(User user, int skip, int limit, TransactionFilter filter) {
+
      if (skip < 0) {
          throw new ResponseStatusException(
              HttpStatus.BAD_REQUEST,
@@ -163,7 +168,8 @@ public TransactionResponse get(User user , String transactionCode) {
 
      Pageable pageable = PageRequest.of(skip / limit, limit);
 
-     Page<Transaction> transactions = transactionRepository.findAllByUser(user, pageable);
+     Specification<Transaction> specification = TransactionSpecification.filterBy(user, filter);
+     Page<Transaction> transactions = transactionRepository.findAll(specification, pageable);
 
     return transactions.map(transaction -> toTransactionResponse(transaction, transaction.getCategory()));
  }
@@ -174,6 +180,7 @@ public TransactionResponse get(User user , String transactionCode) {
         return TransactionResponse.builder()
             .transactionName(transaction.getTransactionName())
             .transactionCode(transaction.getTransactionCode())
+            .amount(transaction.getAmount())
             .description(transaction.getDescription())
             .category(toCategoryResponse(category))
             .date(transaction.getTransactionDate().toLocalDate().toString())

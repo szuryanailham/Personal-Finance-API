@@ -24,13 +24,14 @@ import org.springframework.http.MediaType;
 import com.ilham.personal_finance_api.entity.Category;
 import com.ilham.personal_finance_api.entity.Transaction;
 import com.ilham.personal_finance_api.entity.User;
-import com.ilham.personal_finance_api.model.CreateTransactionRequest;
-import com.ilham.personal_finance_api.model.CreateTransactionResponse;
-import com.ilham.personal_finance_api.model.TransactionResponse;
-import com.ilham.personal_finance_api.model.UpdateTransactionRequest;
-import com.ilham.personal_finance_api.model.WebResponse;
-import com.ilham.personal_finance_api.model.CreateCategoryRequest.CategoryType;
+import com.ilham.personal_finance_api.dto.CreateTransactionRequest;
+import com.ilham.personal_finance_api.dto.CreateTransactionResponse;
+import com.ilham.personal_finance_api.dto.TransactionResponse;
+import com.ilham.personal_finance_api.dto.UpdateTransactionRequest;
+import com.ilham.personal_finance_api.dto.WebResponse;
+import com.ilham.personal_finance_api.dto.TransactionType;
 import com.ilham.personal_finance_api.repository.CategoryRepository;
+import com.ilham.personal_finance_api.AbstractIntegrationTest;
 import com.ilham.personal_finance_api.repository.TransactionRepository;
 import com.ilham.personal_finance_api.repository.UserRepository;
 import com.ilham.personal_finance_api.security.BCrypt;
@@ -38,10 +39,10 @@ import com.ilham.personal_finance_api.security.BCrypt;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 
- @SpringBootTest 
-   @AutoConfigureMockMvc 
+ @SpringBootTest
+   @AutoConfigureMockMvc
 
-public class TransactionControllerTest {
+public class TransactionControllerTest extends AbstractIntegrationTest {
 
 @Autowired 
 private TransactionRepository transactionRepository;
@@ -84,7 +85,7 @@ void setUp() {
          category = new Category();
         category.setName("test");
         category.setUser(user);
-        category.setType(CategoryType.INCOME.name());
+        category.setType(TransactionType.INCOME.name());
         categoryRepository.save(category);
 
       
@@ -116,7 +117,7 @@ void testCreateTransactionBadRequest() throws Exception {
             .accept(MediaType.APPLICATION_JSON)
             .contentType(MediaType.APPLICATION_JSON)
           .content(objectMapper.writeValueAsString(request))
-           .header("X-API-TOKEN","test")
+           .header("Authorization", "Bearer test")
     ).andExpectAll(status().isBadRequest()).andDo(result -> {
          WebResponse<String> response = objectMapper.readValue(
                     result.getResponse().getContentAsString(),
@@ -140,7 +141,7 @@ void testCreateTransactionSuccess() throws Exception {
                     .accept(MediaType.APPLICATION_JSON)
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(objectMapper.writeValueAsString(request))
-                    .header("X-API-TOKEN", "test")
+                    .header("Authorization", "Bearer test")
     )
     .andExpectAll(
             status().isOk()
@@ -199,7 +200,7 @@ void testCreateTransactionSuccess() throws Exception {
             delete("/api/transaction/invalid-token")
                     .accept(MediaType.APPLICATION_JSON)
                     .contentType(MediaType.APPLICATION_JSON)
-                    .header("X-API-TOKEN","test")
+                    .header("Authorization", "Bearer test")
         ).andExpect(status().isNotFound())
         .andDo(result -> {
             WebResponse<String> response =
@@ -218,7 +219,7 @@ void testDeleteCategorySuccess() throws Exception {
             delete("/api/transaction/" + transaction.getTransactionCode())
                     .accept(MediaType.APPLICATION_JSON)
                     .contentType(MediaType.APPLICATION_JSON)
-                    .header("X-API-TOKEN","test")
+                    .header("Authorization", "Bearer test")
         ).andDo(
         result -> {
             WebResponse<String> response = objectMapper.readValue(
@@ -241,7 +242,7 @@ void testGetSingleTransactionNotFound() throws Exception {
             get("/api/transaction/TRX-12345")
                     .accept(MediaType.APPLICATION_JSON)
                     .contentType(MediaType.APPLICATION_JSON)
-                    .header("X-API-TOKEN","test")
+                    .header("Authorization", "Bearer test")
         ).andExpectAll(status().isNotFound())
         .andDo(result-> {
             WebResponse<String> response = objectMapper.readValue(result.getResponse().getContentAsString(), new TypeReference<>() {});
@@ -255,7 +256,7 @@ void testGetSingleTransactionSuccess() throws Exception {
         get("/api/transaction/" + transaction.getTransactionCode())
             .accept(MediaType.APPLICATION_JSON)
             .contentType(MediaType.APPLICATION_JSON)
-            .header("X-API-TOKEN", "test")
+            .header("Authorization", "Bearer test")
     )
     .andExpectAll(
         status().isOk()
@@ -283,7 +284,7 @@ void testGetTransactionPaginationBadRequest() throws Exception {
             .param("limit", "10")
             .accept(MediaType.APPLICATION_JSON)
             .contentType(MediaType.APPLICATION_JSON)
-            .header("X-API-TOKEN", "test")
+            .header("Authorization", "Bearer test")
     )
     .andExpect(status().isBadRequest())
     .andDo(result -> {
@@ -317,7 +318,7 @@ void testGetTransactionPaginationSuccess() throws Exception {
             .param("limit", "10")
             .accept(MediaType.APPLICATION_JSON)
             .contentType(MediaType.APPLICATION_JSON)
-            .header("X-API-TOKEN", "test")
+            .header("Authorization", "Bearer test")
     ) .andExpect(status().isOk())
      .andDo(result -> {
         WebResponse<List<TransactionResponse>> response = objectMapper.readValue( result.getResponse().getContentAsString(), new TypeReference<WebResponse<List<TransactionResponse>>>() {} );
@@ -330,28 +331,17 @@ void testGetTransactionPaginationSuccess() throws Exception {
 
 }
 
-@Test 
+@Test
 void tesUpdateTransactionBadRequest() throws Exception {
-    Category secondCategory = new Category();
-    secondCategory.setName("test");
-    secondCategory.setUser(user);
-    secondCategory.setType(CategoryType.INCOME.name());
-    secondCategory = categoryRepository.save(secondCategory);
-
-
     UpdateTransactionRequest request = new UpdateTransactionRequest();
-    request.setTransactonName("test After Update 1");
-    request.setDescription("Description after update");
-    request.setCategoryId(secondCategory.getId());
-    transaction.setAmount(new BigDecimal("5000000"));
-    transaction.setTransactionDate(LocalDate.of(2026, 8, 31).atStartOfDay());
+    request.setTransactonName("a".repeat(101));
 
     mockMvc.perform(
-      patch("/api/transaction/12345")
+      patch("/api/transaction/" + transaction.getTransactionCode())
       .accept(MediaType.APPLICATION_JSON)
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(objectMapper.writeValueAsString(request))
-                    .header("X-API-TOKEN","test")
+                    .header("Authorization", "Bearer test")
     ) .andExpectAll(
             status().isBadRequest()
         ).andDo(result -> {
@@ -361,8 +351,57 @@ void tesUpdateTransactionBadRequest() throws Exception {
             });
             assertNotNull(response.getErrors());
         });
+}
 
+@Test
+void testUpdateTransactionNotFound() throws Exception {
+    UpdateTransactionRequest request = new UpdateTransactionRequest();
+    request.setTransactonName("test After Update 1");
 
+    mockMvc.perform(
+      patch("/api/transaction/12345")
+      .accept(MediaType.APPLICATION_JSON)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(request))
+                    .header("Authorization", "Bearer test")
+    ) .andExpectAll(
+            status().isNotFound()
+        ).andDo(result -> {
+
+            WebResponse<String> response = objectMapper.readValue(result.getResponse().getContentAsString(),
+             new TypeReference<WebResponse<String>>() {
+            });
+            assertNotNull(response.getErrors());
+        });
+}
+
+@Test
+void testUpdateTransactionPartialSuccess() throws Exception {
+    UpdateTransactionRequest request = new UpdateTransactionRequest();
+    request.setTransactonName("Belanja Bulanan");
+    request.setAmount(new BigDecimal("20000"));
+
+    mockMvc.perform(
+      patch("/api/transaction/" + transaction.getTransactionCode())
+      .accept(MediaType.APPLICATION_JSON)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(request))
+                    .header("Authorization", "Bearer test")
+    ) .andExpectAll(
+            status().isOk()
+        ).andDo(result -> {
+            WebResponse<TransactionResponse> response = objectMapper.readValue(result.getResponse().getContentAsString(),
+             new TypeReference<WebResponse<TransactionResponse>>() {});
+
+            assertNull(response.getErrors());
+            assertNotNull(response.getData());
+            assertEquals(request.getTransactonName(), response.getData().getTransactionName());
+            assertEquals(0, request.getAmount().compareTo(response.getData().getAmount()));
+            // fields not sent in the request must remain unchanged
+            assertEquals(transaction.getDescription(), response.getData().getDescription());
+            assertEquals(transaction.getCategory().getId(), response.getData().getCategory().getId());
+            assertEquals(transaction.getTransactionDate().toLocalDate().toString(), response.getData().getDate());
+        });
 }
 
 
@@ -371,7 +410,7 @@ void tesUpdateTransactionSuccess() throws Exception {
  Category secondCategory = new Category();
     secondCategory.setName("test");
     secondCategory.setUser(user);
-    secondCategory.setType(CategoryType.INCOME.name());
+    secondCategory.setType(TransactionType.INCOME.name());
     secondCategory = categoryRepository.save(secondCategory);
 
      UpdateTransactionRequest request = new UpdateTransactionRequest();
@@ -386,7 +425,7 @@ void tesUpdateTransactionSuccess() throws Exception {
       .accept(MediaType.APPLICATION_JSON)
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(objectMapper.writeValueAsString(request))
-                    .header("X-API-TOKEN","test")
+                    .header("Authorization", "Bearer test")
     ) .andExpectAll(
             status().isOk()
         ).andDo(result -> {

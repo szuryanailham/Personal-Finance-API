@@ -3,8 +3,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import com.ilham.personal_finance_api.entity.User;
 import com.ilham.personal_finance_api.exception.DataAlreadyExistedException;
-import com.ilham.personal_finance_api.model.RegisterUserRequest;
-import com.ilham.personal_finance_api.model.RegisterUserResponse;
+import com.ilham.personal_finance_api.dto.RegisterUserRequest;
+import com.ilham.personal_finance_api.dto.RegisterUserResponse;
 import com.ilham.personal_finance_api.repository.UserRepository;
 import com.ilham.personal_finance_api.security.BCrypt;
 
