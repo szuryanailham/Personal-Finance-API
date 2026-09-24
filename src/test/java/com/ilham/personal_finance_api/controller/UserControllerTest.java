@@ -16,6 +16,8 @@ import com.ilham.personal_finance_api.entity.User;
 import com.ilham.personal_finance_api.dto.RegisterUserRequest;
 import com.ilham.personal_finance_api.dto.WebResponse;
 import com.ilham.personal_finance_api.AbstractIntegrationTest;
+import com.ilham.personal_finance_api.repository.CategoryRepository;
+import com.ilham.personal_finance_api.repository.TransactionRepository;
 import com.ilham.personal_finance_api.repository.UserRepository;
 
 import tools.jackson.core.type.TypeReference;
@@ -24,6 +26,12 @@ import tools.jackson.databind.ObjectMapper;
 @SpringBootTest
 @AutoConfigureMockMvc
 public class UserControllerTest extends AbstractIntegrationTest {
+
+    @Autowired
+    private TransactionRepository transactionRepository;
+
+    @Autowired
+    private CategoryRepository categoryRepository;
 
     @Autowired
     private UserRepository userRepository;
@@ -36,6 +44,8 @@ public class UserControllerTest extends AbstractIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        transactionRepository.deleteAll();
+        categoryRepository.deleteAll();
         userRepository.deleteAll();
     }
 
