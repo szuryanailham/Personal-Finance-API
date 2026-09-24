@@ -815,6 +815,119 @@ Required
 
 ---
 
+### Get Transaction Statistics (Summary)
+
+Returns the authenticated user's financial summary for a period: total balance, total income, total expense, and total saving, each compared with the previous calendar month.
+
+**Endpoint**
+
+```http
+GET /api/transaction/stat?startDate=2026-09-01&endDate=2026-09-30
+```
+
+**Authentication**
+
+```text
+Required
+```
+
+**Request Header**
+
+```http
+Authorization: Bearer <token>
+```
+
+**Query Parameters**
+
+| Parameter   | Type                | Required | Description                                                         |
+| ----------- | ------------------- | -------- | ------------------------------------------------------------------- |
+| `startDate` | Date (`YYYY-MM-DD`) | No       | Start of period, inclusive. Default: first day of the current month |
+| `endDate`   | Date (`YYYY-MM-DD`) | No       | End of period, inclusive (until 23:59:59). Default: last day of the current month |
+
+"Current month" is determined in the business timezone (`app.timezone`, default `Asia/Jakarta`), not the server's timezone.
+
+**Calculation Rules**
+
+- Only the authenticated user's transactions with `isDeleted = false` are counted.
+- Type is taken from the transaction's category (`INCOME` / `EXPENSE` / `SAVING`).
+- `totalBalance.amount = income - expense` (saving is **not** subtracted).
+- Comparison period: the full calendar month before the month of `startDate` (e.g. `startDate=2026-09-10` compares against `2026-08-01`..`2026-08-31`).
+- `changePercentage = (current - previous) * 100 / |previous|`, rounded `HALF_UP` to 2 decimals.
+  - previous `0` and current `0` → `0.00`
+  - previous `0` and current non-zero → `100.00`
+
+**Success Response**
+
+**HTTP 200 OK**
+
+```json
+{
+  "data": {
+    "totalBalance": {
+      "amount": 10100000.00,
+      "changePercentage": 31.17
+    },
+    "totalIncome": {
+      "amount": 12100000.00,
+      "changePercentage": 21.00
+    },
+    "totalExpense": {
+      "amount": 2000000.00,
+      "changePercentage": -13.04
+    },
+    "totalSaving": {
+      "amount": 1500000.00,
+      "changePercentage": 50.00
+    }
+  },
+  "message": null,
+  "errors": null,
+  "paging": null
+}
+```
+
+| Field          | Type   | Description                         |
+| -------------- | ------ | ----------------------------------- |
+| `totalBalance` | Object | Income minus expense for the period |
+| `totalIncome`  | Object | Total `INCOME` for the period       |
+| `totalExpense` | Object | Total `EXPENSE` for the period      |
+| `totalSaving`  | Object | Total `SAVING` for the period       |
+
+Each summary object:
+
+| Field              | Type       | Description                                                                 |
+| ------------------ | ---------- | --------------------------------------------------------------------------- |
+| `amount`           | BigDecimal | Raw amount (not formatted); `0` when there are no transactions, never `null` |
+| `changePercentage` | BigDecimal | Change vs. the previous calendar month, 2 decimals, negative means decrease |
+
+**Error Response**
+
+**HTTP 400 Bad Request** — `endDate` before `startDate` (including when only one parameter is given and the default for the other makes the range invalid)
+
+```json
+{
+  "data": null,
+  "message": null,
+  "errors": "endDate must be after startDate",
+  "paging": null
+}
+```
+
+**HTTP 400 Bad Request** — invalid date format (e.g. `startDate=01-09-2026`)
+
+**HTTP 401 Unauthorized** — missing or invalid token
+
+```json
+{
+  "data": null,
+  "message": null,
+  "errors": "Unauthorized",
+  "paging": null
+}
+```
+
+---
+
 ## 4. Operations
 
 ### Flyway Migration Info

@@ -1,6 +1,8 @@
 package com.ilham.personal_finance_api.controller;
 
+import java.time.Clock;
 import java.time.LocalDate;
+import java.time.temporal.TemporalAdjusters;
 import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,6 +21,7 @@ import com.ilham.personal_finance_api.dto.CreateTransactionResponse;
 import com.ilham.personal_finance_api.dto.PaginationResponse;
 import com.ilham.personal_finance_api.dto.TransactionFilter;
 import com.ilham.personal_finance_api.dto.TransactionResponse;
+import com.ilham.personal_finance_api.dto.TransactionStateResponse;
 import com.ilham.personal_finance_api.dto.TransactionType;
 import com.ilham.personal_finance_api.dto.UpdateTransactionRequest;
 import com.ilham.personal_finance_api.dto.WebResponse;
@@ -31,6 +34,9 @@ public class TransactionController {
 
     @Autowired 
     private TransactionService transactionService;
+
+    @Autowired
+    private Clock clock;
 
     @PostMapping (
         path = "/api/transaction",
@@ -102,6 +108,30 @@ public WebResponse<List<TransactionResponse>> getAll(
             )
             .build();
 }
+
+
+    @GetMapping(
+        path = "/api/transaction/stat",
+        produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public WebResponse<TransactionStateResponse> getState(
+            User user,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate
+    ) {
+    LocalDate today = LocalDate.now(clock);
+    LocalDate start = startDate != null ? startDate : today.withDayOfMonth(1);
+    LocalDate end = endDate != null ? endDate : today.with(TemporalAdjusters.lastDayOfMonth());
+
+    TransactionStateResponse state = transactionService.getStat(
+        user,
+        start.atStartOfDay(),
+        end.plusDays(1).atStartOfDay()
+    );
+    return WebResponse.<TransactionStateResponse>builder().data(state).build();
+    }
+
+
 
 @PatchMapping (
     path = "/api/transaction/{transactionCode}",

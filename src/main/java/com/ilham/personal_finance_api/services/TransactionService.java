@@ -1,5 +1,8 @@
 package com.ilham.personal_finance_api.services;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,6 +20,8 @@ import com.ilham.personal_finance_api.dto.CreateTransactionRequest;
 import com.ilham.personal_finance_api.dto.CreateTransactionResponse;
 import com.ilham.personal_finance_api.dto.TransactionFilter;
 import com.ilham.personal_finance_api.dto.TransactionResponse;
+import com.ilham.personal_finance_api.dto.TransactionStateResponse;
+import com.ilham.personal_finance_api.dto.TransactionType;
 import com.ilham.personal_finance_api.dto.UpdateTransactionRequest;
 import com.ilham.personal_finance_api.entity.Category;
 import com.ilham.personal_finance_api.entity.Transaction;
@@ -27,6 +32,9 @@ import com.ilham.personal_finance_api.repository.TransactionSpecification;
 
 @Service
 public class TransactionService {
+
+    private static final int PERCENTAGE_SCALE = 2;
+    private static final BigDecimal ONE_HUNDRED = BigDecimal.valueOf(100);
 
     @Autowired
     private TransactionRepository transactionRepository;
@@ -150,7 +158,7 @@ public TransactionResponse get(User user , String transactionCode) {
 
 
  @Transactional (readOnly = true)
- public Page<com.ilham.personal_finance_api.dto.TransactionResponse> getAll(User user, int skip, int limit, TransactionFilter filter) {
+ public Page<TransactionResponse> getAll(User user, int skip, int limit, TransactionFilter filter) {
 
      if (skip < 0) {
          throw new ResponseStatusException(
@@ -176,6 +184,58 @@ public TransactionResponse get(User user , String transactionCode) {
 
 
 
+   @Transactional (readOnly = true)
+   public TransactionStateResponse getStat(User user, LocalDateTime startDate, LocalDateTime endDate) {
+      if (!endDate.isAfter(startDate)) {
+          throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "endDate must be after startDate");
+      }
+
+
+      LocalDateTime lastStartDate = startDate.toLocalDate().minusMonths(1).withDayOfMonth(1).atStartOfDay();
+      LocalDateTime lastEndDate = startDate.toLocalDate().withDayOfMonth(1).atStartOfDay();
+
+      BigDecimal currentIncome = sumAmount(user, TransactionType.INCOME, startDate, endDate);
+      BigDecimal currentExpense = sumAmount(user, TransactionType.EXPENSE, startDate, endDate);
+      BigDecimal currentSaving = sumAmount(user, TransactionType.SAVING, startDate, endDate);
+      BigDecimal lastIncome = sumAmount(user, TransactionType.INCOME, lastStartDate, lastEndDate);
+      BigDecimal lastExpense = sumAmount(user, TransactionType.EXPENSE, lastStartDate, lastEndDate);
+      BigDecimal lastSaving = sumAmount(user, TransactionType.SAVING, lastStartDate, lastEndDate);
+
+      // Balance = income - expense (SAVING tidak mengurangi balance)
+      BigDecimal currentBalance = currentIncome.subtract(currentExpense);
+      BigDecimal lastBalance = lastIncome.subtract(lastExpense);
+
+      return TransactionStateResponse.builder()
+          .totalBalance(toStatistic(currentBalance, lastBalance))
+          .totalIncome(toStatistic(currentIncome, lastIncome))
+          .totalExpense(toStatistic(currentExpense, lastExpense))
+          .totalSaving(toStatistic(currentSaving, lastSaving))
+          .build();
+   }
+
+   private BigDecimal sumAmount(User user, TransactionType type, LocalDateTime start, LocalDateTime end) {
+      return transactionRepository.sumAmountByTypeAndPeriod(user, type.name(), start, end);
+   }
+
+   private TransactionStateResponse.Statistic toStatistic(BigDecimal current, BigDecimal last) {
+      return TransactionStateResponse.Statistic.builder()
+          .amount(current)
+          .changePercentage(calculateChangePercentage(current, last))
+          .build();
+   }
+
+private BigDecimal calculateChangePercentage( BigDecimal current, BigDecimal last) {
+    if (last.compareTo(BigDecimal.ZERO) == 0) {
+        BigDecimal result = current.compareTo(BigDecimal.ZERO) == 0 ? BigDecimal.ZERO : ONE_HUNDRED;
+        return result.setScale(PERCENTAGE_SCALE);
+    }
+
+    return current.subtract(last)
+            .multiply(ONE_HUNDRED)
+            .divide(last.abs(), PERCENTAGE_SCALE, RoundingMode.HALF_UP);
+}
+
+
     private TransactionResponse toTransactionResponse(Transaction transaction, Category category) {
         return TransactionResponse.builder()
             .transactionName(transaction.getTransactionName())
@@ -194,5 +254,10 @@ public TransactionResponse get(User user , String transactionCode) {
             .type(category.getType())
             .build();
     }
+
+
+  
+
+
     
 }

@@ -425,6 +425,56 @@ void testTransactionBySearchDate() throws Exception {
     });
 }
 
+
+@Test 
+void testTransactionByTypeTransaction() throws Exception {
+      for (int i = 1; i <= 15; i++) {
+        transaction = new Transaction();
+        transaction.setTransactionName("Transaction test");
+        transaction.setTransactionCode("TRX-" + UUID.randomUUID());
+        transaction.setCategory(category);
+        transaction.setUser(user);
+        transaction.setAmount(new BigDecimal("5000000"));
+        transaction.setDescription("this is for test");
+        transaction.setTransactionDate(
+            LocalDate.of(2026, 8, 31).atStartOfDay()
+        );
+        transactionRepository.save(transaction);
+    }
+
+      mockMvc.perform(
+        get("/api/transaction")
+            .param("skip", "0")
+            .param("limit", "10")
+            .param("type", "INCOME")
+            .accept(MediaType.APPLICATION_JSON)
+            .header("Authorization", "Bearer test")
+    )
+      .andExpect(status().isOk())
+    .andDo(result -> {
+        WebResponse<List<TransactionResponse>> response =
+            objectMapper.readValue(
+                result.getResponse().getContentAsString(),
+                new TypeReference<WebResponse<List<TransactionResponse>>>() {}
+            );
+        assertNull(response.getErrors());
+        assertNotNull(response.getData());
+        assertNotNull(response.getPaging());
+
+        assertEquals(10, response.getData().size());
+        assertEquals(1, response.getPaging().getCurrentPage());
+        assertEquals(2, response.getPaging().getTotalPage());
+
+        for (TransactionResponse transaction : response.getData()) {
+    assertEquals("INCOME", transaction.getCategory().getType());
+}
+    });
+}
+
+
+
+
+
 @Test
 void tesUpdateTransactionBadRequest() throws Exception {
     UpdateTransactionRequest request = new UpdateTransactionRequest();
