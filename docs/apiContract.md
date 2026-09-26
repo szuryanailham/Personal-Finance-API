@@ -65,6 +65,21 @@ Authentication: Required
 
 ---
 
+## CORS
+
+CORS is enabled for every path under `/api/**`.
+
+| Setting           | Value                                                                                   |
+| ----------------- | --------------------------------------------------------------------------------------- |
+| Allowed origins   | `app.cors.allowed-origins` (env `CORS_ALLOWED_ORIGINS`, comma-separated). Default: `http://localhost:3000` |
+| Allowed methods   | `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`                                      |
+| Allowed headers   | `Authorization`, `Content-Type`, `Accept`                                               |
+| Preflight max-age | `3600` seconds                                                                          |
+
+Credentials (`allowCredentials`) are not enabled. Auth uses the `Authorization` header, not cookies, so clients don't need them.
+
+---
+
 ## 1. Authentication
 
 ### Register
@@ -601,7 +616,9 @@ Required
 
 | Parameter         | Type   | Description                                    |
 | ------------------ | ------ | ------------------------------------------------ |
-| `transactionCode`  | String | Server-generated code, format `TRX-<uuid>`       |
+| `transactionCode`  | String | Server-generated code, format `TRX-yyyyMMdd-NNN` (e.g. `TRX-20260831-001`) |
+
+The date part is the **creation** date in the business timezone (`app.timezone`), not the transaction's `date`. `NNN` is a 3-digit sequence that resets every day and is shared by all users.
 
 **Success Response**
 
@@ -611,7 +628,7 @@ Required
 {
   "data": {
     "transactionName": "Monthly Salary",
-    "transactionCode": "TRX-3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "transactionCode": "TRX-20260831-001",
     "amount": 5000000,
     "description": "August salary",
     "category": {
@@ -662,13 +679,34 @@ Required
 | --------- | ------- | -------- | -------------------------------------------------------------------- |
 | `skip`    | Integer | Yes      | Page number (0-based) — despite the name, this is **not** a row offset |
 | `limit`   | Integer | Yes      | Page size                                                             |
+| `search`  | String  | No       | Case-insensitive substring match on `transactionName` **or** `description` |
+| `date`    | Date (`YYYY-MM-DD`) | No | Only transactions on that day (00:00:00–23:59:59)             |
+| `type`    | String  | No       | Category type: `INCOME`, `EXPENSE`, or `SAVING` (case-sensitive)       |
+| `sort`    | String  | No       | Sort order, see table below. Default: `date` (newest first)           |
 
-There is currently no `keyword`, `type`, `categoryId`, `startDate`, or `endDate` filter — only pagination is supported.
+Filters are combined with AND.
+
+**Sort values**
+
+| `sort`             | Order                             |
+| ------------------ | --------------------------------- |
+| `date` (default)   | Transaction date, newest first    |
+| `-date`            | Transaction date, oldest first    |
+| `amount`           | Amount, highest first             |
+| `-amount`          | Amount, lowest first              |
+| `name`             | Transaction name, A→Z             |
+| `-name`            | Transaction name, Z→A             |
+| `category`         | Category name, A→Z                |
+| `-category`        | Category name, Z→A                |
+| `transactionCode`  | Transaction code, ascending       |
+| `-transactionCode` | Transaction code, descending      |
+
+Values are case-sensitive. Ties are always broken by `transactionCode` ascending, so pages stay stable. Note that for `date` and `amount`, the version *without* `-` is descending. That is the opposite of `name`, `category`, and `transactionCode`.
 
 **Example**
 
 ```http
-GET /api/transaction?skip=0&limit=10
+GET /api/transaction?skip=0&limit=10&search=salary&type=INCOME&sort=-amount
 ```
 
 **Success Response**
@@ -680,7 +718,7 @@ GET /api/transaction?skip=0&limit=10
   "data": [
     {
       "transactionName": "Monthly Salary",
-      "transactionCode": "TRX-3fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "transactionCode": "TRX-20260831-001",
       "amount": 5000000,
       "description": "August salary",
       "category": {
@@ -702,6 +740,17 @@ GET /api/transaction?skip=0&limit=10
 ```
 
 > Note: soft-deleted transactions are **not** currently filtered out of this list or of the detail endpoint.
+
+**Error Response**
+
+**HTTP 400 Bad Request**
+
+| Cause                          | `errors`                                              |
+| ------------------------------ | ----------------------------------------------------- |
+| `skip < 0`                     | `"Skip must be greater than or equal to 0"`           |
+| `limit <= 0`                   | `"Limit must be greater than 0"`                      |
+| Unknown `sort` value           | `"Invalid sort value: <value>"`                       |
+| Invalid `type` or `date` value | `"Parameter '<name>' has invalid value: <value>"`     |
 
 ---
 
@@ -752,7 +801,7 @@ Required
 {
   "data": {
     "transactionName": "Belanja Bulanan",
-    "transactionCode": "TRX-3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "transactionCode": "TRX-20260831-001",
     "amount": 20000,
     "description": "August salary",
     "category": {
@@ -851,6 +900,7 @@ Authorization: Bearer <token>
 - Only the authenticated user's transactions with `isDeleted = false` are counted.
 - Type is taken from the transaction's category (`INCOME` / `EXPENSE` / `SAVING`).
 - `totalBalance.amount = income - expense` (saving is **not** subtracted).
+- Every `amount` has a floor of `0`. A negative balance (expense > income) comes back as `0`, and its `changePercentage` is calculated from that `0`. The previous month's value is not floored.
 - Comparison period: the full calendar month before the month of `startDate` (e.g. `startDate=2026-09-10` compares against `2026-08-01`..`2026-08-31`).
 - `changePercentage = (current - previous) * 100 / |previous|`, rounded `HALF_UP` to 2 decimals.
   - previous `0` and current `0` → `0.00`
@@ -897,7 +947,7 @@ Each summary object:
 
 | Field              | Type       | Description                                                                 |
 | ------------------ | ---------- | --------------------------------------------------------------------------- |
-| `amount`           | BigDecimal | Raw amount (not formatted); `0` when there are no transactions, never `null` |
+| `amount`           | BigDecimal | Raw amount (not formatted); never negative, `0` when there are no transactions, never `null` |
 | `changePercentage` | BigDecimal | Change vs. the previous calendar month, 2 decimals, negative means decrease |
 
 **Error Response**
@@ -925,6 +975,101 @@ Each summary object:
   "paging": null
 }
 ```
+
+---
+
+### Get Transaction Statistic (Daily Chart)
+
+Returns daily income and expense totals for the current month or the last 7 days. It's meant for charts. Days with no transactions are included with `0` values.
+
+**Endpoint**
+
+```http
+GET /api/transaction/statistic?periode=Monthly
+```
+
+**Authentication**
+
+```text
+Required
+```
+
+**Query Parameters**
+
+| Parameter | Type   | Required | Description                                                  |
+| --------- | ------ | -------- | ------------------------------------------------------------ |
+| `periode` | String | No       | `Monthly` or `Weekly` (case-sensitive). Default: `Monthly`   |
+
+> Note: the parameter name is spelled `periode` (not `period`), and the values must be capitalized exactly as shown.
+
+**Period Rules** ("today" is in the business timezone, `app.timezone`)
+
+| `periode` | `startDate`                     | `endDate`                      |
+| --------- | ------------------------------- | ------------------------------ |
+| `Monthly` | First day of the current month  | Last day of the current month  |
+| `Weekly`  | Today minus 6 days              | Today                          |
+
+- `Monthly` returns one item for every day of the month, **including future days** (these are `0`).
+- `Weekly` is a rolling 7-day window ending today, not a calendar week.
+- Only the authenticated user's transactions with `isDeleted = false` are counted.
+- `SAVING` transactions are not included in `income` or `expense`.
+- `items` is ordered by date ascending.
+
+**Success Response**
+
+**HTTP 200 OK**
+
+```json
+{
+  "data": {
+    "period": "Weekly",
+    "startDate": "2026-09-20",
+    "endDate": "2026-09-26",
+    "items": [
+      { "date": "2026-09-20", "income": 0, "expense": 150000.00 },
+      { "date": "2026-09-21", "income": 0, "expense": 0 },
+      { "date": "2026-09-22", "income": 5000000.00, "expense": 75000.00 },
+      { "date": "2026-09-23", "income": 0, "expense": 0 },
+      { "date": "2026-09-24", "income": 0, "expense": 320000.00 },
+      { "date": "2026-09-25", "income": 0, "expense": 0 },
+      { "date": "2026-09-26", "income": 0, "expense": 45000.00 }
+    ]
+  },
+  "message": null,
+  "errors": null,
+  "paging": null
+}
+```
+
+| Field       | Type                | Description                                |
+| ----------- | ------------------- | ------------------------------------------ |
+| `period`    | String              | The resolved period (`Monthly` / `Weekly`)   |
+| `startDate` | Date (`YYYY-MM-DD`) | First day of the range, inclusive          |
+| `endDate`   | Date (`YYYY-MM-DD`) | Last day of the range, inclusive           |
+| `items`     | Array               | One entry per day from `startDate` to `endDate` |
+
+Each item:
+
+| Field     | Type                | Description                          |
+| --------- | ------------------- | ------------------------------------ |
+| `date`    | Date (`YYYY-MM-DD`) | The day                              |
+| `income`  | BigDecimal          | Sum of `INCOME` transactions that day  |
+| `expense` | BigDecimal          | Sum of `EXPENSE` transactions that day |
+
+**Error Response**
+
+**HTTP 400 Bad Request**: `periode` is not `Monthly` or `Weekly`
+
+```json
+{
+  "data": null,
+  "message": null,
+  "errors": "periode is not valid",
+  "paging": null
+}
+```
+
+**HTTP 401 Unauthorized**: missing or invalid token
 
 ---
 
@@ -972,7 +1117,8 @@ The following are referenced in older drafts of this contract but do not exist i
 
 - `/api/incomes`, `/api/expenses` (income/expense are just `Category.type` values on the unified transaction/category model, not separate resources)
 - `/api/financial-summary`
-- Transaction search/filter query params (`keyword`, `type`, `categoryId`, `startDate`, `endDate`)
+- Transaction list filters `keyword`, `categoryId`, `startDate`, `endDate` (use `search`, `type`, and single-day `date` instead)
+- Custom date ranges on `GET /api/transaction/statistic` (only `Monthly` / `Weekly` presets)
 - `204 No Content` responses (every endpoint returns `200 OK` with a JSON body, including deletes)
 
 ---

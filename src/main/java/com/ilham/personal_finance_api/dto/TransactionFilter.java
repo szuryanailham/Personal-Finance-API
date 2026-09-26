@@ -16,6 +16,6 @@ public class TransactionFilter {
     private String search;
     private LocalDate date;
     private TransactionType type;
-
+    private  String sort;
 }
 

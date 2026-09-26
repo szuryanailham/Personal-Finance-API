@@ -38,6 +38,10 @@ public class TransactionSpecification {
                 ));
             }
 
+            if (filter.getSort() != null) {
+                // 
+            }
+
             return predicate;
         };
     }

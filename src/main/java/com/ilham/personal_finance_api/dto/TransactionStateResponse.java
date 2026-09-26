@@ -1,8 +1,6 @@
 package com.ilham.personal_finance_api.dto;
-
 import java.math.BigDecimal;
 
-import com.ilham.personal_finance_api.dto.TransactionStateResponse.Statistic;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;

@@ -2,13 +2,20 @@ package com.ilham.personal_finance_api.services;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Clock;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.UUID;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -20,7 +27,10 @@ import com.ilham.personal_finance_api.dto.CreateTransactionRequest;
 import com.ilham.personal_finance_api.dto.CreateTransactionResponse;
 import com.ilham.personal_finance_api.dto.TransactionFilter;
 import com.ilham.personal_finance_api.dto.TransactionResponse;
+import com.ilham.personal_finance_api.dto.TransactionSort;
 import com.ilham.personal_finance_api.dto.TransactionStateResponse;
+import com.ilham.personal_finance_api.dto.TransactionStatisticResponse;
+import com.ilham.personal_finance_api.dto.TransactionStatisticResponse.TransactionPeriodItemResponse;
 import com.ilham.personal_finance_api.dto.TransactionType;
 import com.ilham.personal_finance_api.dto.UpdateTransactionRequest;
 import com.ilham.personal_finance_api.entity.Category;
@@ -35,6 +45,8 @@ public class TransactionService {
 
     private static final int PERCENTAGE_SCALE = 2;
     private static final BigDecimal ONE_HUNDRED = BigDecimal.valueOf(100);
+    private static final String TRANSACTION_CODE_PREFIX = "TRX-";
+    private static final DateTimeFormatter TRANSACTION_CODE_DATE_FORMAT = DateTimeFormatter.BASIC_ISO_DATE;
 
     @Autowired
     private TransactionRepository transactionRepository;
@@ -45,6 +57,10 @@ public class TransactionService {
     @Autowired
     private ValidationService validationService;
 
+    @Autowired
+    private Clock clock;
+
+    // create transaction
 
     @Transactional
     public CreateTransactionResponse create(User user, CreateTransactionRequest request) {
@@ -76,17 +92,26 @@ public class TransactionService {
     }
 
 
+    // generate transaction code 
 
-
+    // format: TRX-yyyyMMdd-NNN, nomor urut reset setiap hari
     private String generateTransactionCode() {
+        String prefix = TRANSACTION_CODE_PREFIX + LocalDate.now(clock).format(TRANSACTION_CODE_DATE_FORMAT) + "-";
+
+        int nextSequence = transactionRepository
+            .findTopByTransactionCodeStartingWithOrderByTransactionCodeDesc(prefix)
+            .map(last -> Integer.parseInt(last.getTransactionCode().substring(prefix.length())) + 1)
+            .orElse(1);
+
         String transactionCode;
         do {
-            transactionCode = "TRX-" + UUID.randomUUID();
+            transactionCode = prefix + String.format("%03d", nextSequence++);
         } while (transactionRepository.existsByTransactionCode(transactionCode));
 
         return transactionCode;
     }
 
+    // delete transaction
 @Transactional
 public void delete(User user, String transactionCode) {
     Transaction transaction = transactionRepository
@@ -100,6 +125,8 @@ public void delete(User user, String transactionCode) {
 
     transaction.setDeleted(true);
 }
+
+// update transaction 
 
 @Transactional
 public TransactionResponse update(User user, String transactionCode, UpdateTransactionRequest request) {
@@ -148,6 +175,8 @@ public TransactionResponse update(User user, String transactionCode, UpdateTrans
 }
 
 
+// get single transaction 
+
 @Transactional (readOnly = true)
 public TransactionResponse get(User user , String transactionCode) {
 
@@ -156,6 +185,7 @@ public TransactionResponse get(User user , String transactionCode) {
 }
 
 
+// get all transaction
 
  @Transactional (readOnly = true)
  public Page<TransactionResponse> getAll(User user, int skip, int limit, TransactionFilter filter) {
@@ -174,7 +204,8 @@ public TransactionResponse get(User user , String transactionCode) {
          );
      }
 
-     Pageable pageable = PageRequest.of(skip / limit, limit);
+     Sort sort = TransactionSort.fromValue(filter.getSort()).getSort();
+     Pageable pageable = PageRequest.of(skip / limit, limit, sort);
 
      Specification<Transaction> specification = TransactionSpecification.filterBy(user, filter);
      Page<Transaction> transactions = transactionRepository.findAll(specification, pageable);
@@ -183,7 +214,7 @@ public TransactionResponse get(User user , String transactionCode) {
  }
 
 
-
+//  get state transaction
    @Transactional (readOnly = true)
    public TransactionStateResponse getStat(User user, LocalDateTime startDate, LocalDateTime endDate) {
       if (!endDate.isAfter(startDate)) {
@@ -201,9 +232,11 @@ public TransactionResponse get(User user , String transactionCode) {
       BigDecimal lastExpense = sumAmount(user, TransactionType.EXPENSE, lastStartDate, lastEndDate);
       BigDecimal lastSaving = sumAmount(user, TransactionType.SAVING, lastStartDate, lastEndDate);
 
-      // Balance = income - expense (SAVING tidak mengurangi balance)
+
       BigDecimal currentBalance = currentIncome.subtract(currentExpense);
       BigDecimal lastBalance = lastIncome.subtract(lastExpense);
+
+      
 
       return TransactionStateResponse.builder()
           .totalBalance(toStatistic(currentBalance, lastBalance))
@@ -218,9 +251,10 @@ public TransactionResponse get(User user , String transactionCode) {
    }
 
    private TransactionStateResponse.Statistic toStatistic(BigDecimal current, BigDecimal last) {
+      BigDecimal nonNegativeCurrent = current.max(BigDecimal.ZERO);
       return TransactionStateResponse.Statistic.builder()
-          .amount(current)
-          .changePercentage(calculateChangePercentage(current, last))
+          .amount(nonNegativeCurrent)
+          .changePercentage(calculateChangePercentage(nonNegativeCurrent, last))
           .build();
    }
 
@@ -256,8 +290,67 @@ private BigDecimal calculateChangePercentage( BigDecimal current, BigDecimal las
     }
 
 
+    // get statistic transation
+   @Transactional (readOnly = true)
+    public TransactionStatisticResponse getStatistic(User user, String periode) {
+
+        if (periode == null || periode.isEmpty()) {
+            periode = "Monthly";
+        }
+
+        if (!"Monthly".equals(periode) && !"Weekly".equals(periode)) {
+            throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "periode is not valid"
+            );
+        }
+
+        LocalDate now = LocalDate.now(clock);
+        LocalDate startDate;
+        LocalDate endDate;
+
+        if ("Monthly".equals(periode)) {
+            startDate = now.withDayOfMonth(1);
+            endDate = now.withDayOfMonth(now.lengthOfMonth());
+        } else {
+            startDate = now.minusDays(6);
+            endDate = now;
+        }
+
+        List<TransactionPeriodItemResponse> dailyItems = transactionRepository.getSumDailyIncomeAndExpenseByPeriod(
+            user,
+            startDate.atStartOfDay(),
+            endDate.plusDays(1).atStartOfDay()
+        );
+
+        return TransactionStatisticResponse.builder()
+            .period(periode)
+            .startDate(startDate)
+            .endDate(endDate)
+            .items(fillMissingDates(dailyItems, startDate, endDate))
+            .build();
+    }
+
+    private List<TransactionPeriodItemResponse> fillMissingDates(
+        List<TransactionPeriodItemResponse> dailyItems,
+        LocalDate startDate,
+        LocalDate endDate
+    ) {
+        Map<LocalDate, TransactionPeriodItemResponse> itemsByDate = dailyItems.stream()
+            .collect(Collectors.toMap(TransactionPeriodItemResponse::getDate, Function.identity()));
+
+        return startDate.datesUntil(endDate.plusDays(1))
+            .map(date -> itemsByDate.getOrDefault(date, TransactionPeriodItemResponse.builder()
+                .date(date)
+                .income(BigDecimal.ZERO)
+                .expense(BigDecimal.ZERO)
+                .build()))
+            .toList();
+    }
+
+}
+    
   
 
 
-    
-}
+

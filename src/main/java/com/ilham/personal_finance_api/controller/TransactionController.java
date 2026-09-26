@@ -22,6 +22,7 @@ import com.ilham.personal_finance_api.dto.PaginationResponse;
 import com.ilham.personal_finance_api.dto.TransactionFilter;
 import com.ilham.personal_finance_api.dto.TransactionResponse;
 import com.ilham.personal_finance_api.dto.TransactionStateResponse;
+import com.ilham.personal_finance_api.dto.TransactionStatisticResponse;
 import com.ilham.personal_finance_api.dto.TransactionType;
 import com.ilham.personal_finance_api.dto.UpdateTransactionRequest;
 import com.ilham.personal_finance_api.dto.WebResponse;
@@ -86,12 +87,14 @@ public WebResponse<List<TransactionResponse>> getAll(
         @RequestParam int limit,
         @RequestParam(required = false) String search,
         @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
-        @RequestParam(required = false) TransactionType type
+        @RequestParam(required = false) TransactionType type,
+        @RequestParam(required = false) String sort
 ) {
     TransactionFilter filter = TransactionFilter.builder()
             .search(search)
             .date(date)
             .type(type)
+            .sort(sort)
             .build();
 
     Page<TransactionResponse> transaction =
@@ -132,6 +135,22 @@ public WebResponse<List<TransactionResponse>> getAll(
     }
 
 
+     @GetMapping(
+        path = "/api/transaction/statistic",
+        produces = MediaType.APPLICATION_JSON_VALUE
+    )
+
+    public WebResponse<TransactionStatisticResponse> getStatistic(User user, @RequestParam(required = false) String periode) {
+        TransactionStatisticResponse statistic =
+            transactionService.getStatistic(user, periode);
+
+        return WebResponse.<TransactionStatisticResponse>builder()
+            .data(statistic)
+            .message(null)
+            .errors(null)
+            .paging(null)
+            .build();
+    }
 
 @PatchMapping (
     path = "/api/transaction/{transactionCode}",
@@ -148,6 +167,7 @@ public WebResponse<TransactionResponse>update(User user ,
     TransactionResponse transactionResponse = transactionService.update(user, transactionCode, request);
     return WebResponse.<TransactionResponse>builder().data(transactionResponse).build();
 }
+
 
 
     
