@@ -7,6 +7,9 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.ilham.personal_finance_api.exception.DataAlreadyExistedException;
@@ -63,6 +66,18 @@ public class ErrorController {
         return ResponseEntity
                 .badRequest()
                 .body(response);
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<WebResponse<Object>> handleMaxUploadSize(MaxUploadSizeExceededException e) {
+        WebResponse<Object> response = new WebResponse<>(null, null, "File size exceeds the limit", null);
+        return ResponseEntity.status(HttpStatus.CONTENT_TOO_LARGE).body(response);
+    }
+
+    @ExceptionHandler({MissingServletRequestPartException.class, MultipartException.class})
+    public ResponseEntity<WebResponse<Object>> handleMissingFile(Exception e) {
+        WebResponse<Object> response = new WebResponse<>(null, null, "File is required", null);
+        return ResponseEntity.badRequest().body(response);
     }
 
 }

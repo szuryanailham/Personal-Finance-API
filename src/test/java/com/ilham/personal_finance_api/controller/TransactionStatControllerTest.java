@@ -21,6 +21,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultMatcher;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import com.ilham.personal_finance_api.AbstractIntegrationTest;
 import com.ilham.personal_finance_api.dto.TransactionStateResponse;
@@ -41,7 +43,7 @@ import tools.jackson.databind.ObjectMapper;
 @AutoConfigureMockMvc
 public class TransactionStatControllerTest extends AbstractIntegrationTest {
 
-// "Hari ini" dikunci ke 2026-09-24 (Asia/Jakarta) agar default bulan berjalan deterministik
+// "Hari ini" dikunci ke 2026-09-24 (Asia/Jakarta) agar periode YEARLY/MONTHLY/WEEKLY deterministik
 @TestConfiguration
 static class FixedClockConfiguration {
     @Bean
@@ -143,275 +145,131 @@ private void createTransaction(User owner, Category category, String amount, Loc
     transactionRepository.save(newTransaction);
 }
 
-
-// TC-01
-@Test
-void testGetStatSuccess() throws Exception {
-    mockMvc.perform(
-        get("/api/transaction/stat")
-            .param("startDate", "2026-09-01")
-            .param("endDate", "2026-09-30")
-            .accept(MediaType.APPLICATION_JSON)
-            .header("Authorization", "Bearer test")
-    )
-    .andExpect(status().isOk())
-    .andDo(result -> {
-        WebResponse<TransactionStateResponse> response = objectMapper.readValue(
-            result.getResponse().getContentAsString(),
-            new TypeReference<WebResponse<TransactionStateResponse>>() {}
-        );
-        assertNull(response.getErrors());
-        assertNotNull(response.getData());
-
-        assertEquals(0, new BigDecimal("12100000").compareTo(response.getData().getTotalIncome().getAmount()));
-        assertEquals(0, new BigDecimal("21.00").compareTo(response.getData().getTotalIncome().getChangePercentage()));
-        assertEquals(0, new BigDecimal("2000000").compareTo(response.getData().getTotalExpense().getAmount()));
-        assertEquals(0, new BigDecimal("-13.04").compareTo(response.getData().getTotalExpense().getChangePercentage()));
-        assertEquals(0, new BigDecimal("1500000").compareTo(response.getData().getTotalSaving().getAmount()));
-        assertEquals(0, new BigDecimal("50.00").compareTo(response.getData().getTotalSaving().getChangePercentage()));
-        assertEquals(0, new BigDecimal("10100000").compareTo(response.getData().getTotalBalance().getAmount()));
-        assertEquals(0, new BigDecimal("31.17").compareTo(response.getData().getTotalBalance().getChangePercentage()));
-    });
+// params: pasangan name, value
+private MockHttpServletRequestBuilder statRequest(String... params) {
+    MockHttpServletRequestBuilder request = get("/api/transaction/stat")
+        .accept(MediaType.APPLICATION_JSON)
+        .header("Authorization", "Bearer test");
+    for (int i = 0; i < params.length; i += 2) {
+        request.param(params[i], params[i + 1]);
+    }
+    return request;
 }
 
-// TC-02
-@Test
-void testGetStatDefaultCurrentMonth() throws Exception {
-    mockMvc.perform(
-        get("/api/transaction/stat")
-            .accept(MediaType.APPLICATION_JSON)
-            .header("Authorization", "Bearer test")
-    )
-    .andExpect(status().isOk())
-    .andDo(result -> {
-        WebResponse<TransactionStateResponse> response = objectMapper.readValue(
-            result.getResponse().getContentAsString(),
-            new TypeReference<WebResponse<TransactionStateResponse>>() {}
-        );
-        assertNull(response.getErrors());
-        assertNotNull(response.getData());
+private TransactionStateResponse getStatOk(String... params) throws Exception {
+    String content = mockMvc.perform(statRequest(params))
+        .andExpect(status().isOk())
+        .andReturn().getResponse().getContentAsString();
 
-        assertEquals(0, new BigDecimal("12100000").compareTo(response.getData().getTotalIncome().getAmount()));
-        assertEquals(0, new BigDecimal("21.00").compareTo(response.getData().getTotalIncome().getChangePercentage()));
-        assertEquals(0, new BigDecimal("2000000").compareTo(response.getData().getTotalExpense().getAmount()));
-        assertEquals(0, new BigDecimal("-13.04").compareTo(response.getData().getTotalExpense().getChangePercentage()));
-        assertEquals(0, new BigDecimal("1500000").compareTo(response.getData().getTotalSaving().getAmount()));
-        assertEquals(0, new BigDecimal("50.00").compareTo(response.getData().getTotalSaving().getChangePercentage()));
-        assertEquals(0, new BigDecimal("10100000").compareTo(response.getData().getTotalBalance().getAmount()));
-        assertEquals(0, new BigDecimal("31.17").compareTo(response.getData().getTotalBalance().getChangePercentage()));
-    });
+    WebResponse<TransactionStateResponse> response = objectMapper.readValue(
+        content,
+        new TypeReference<WebResponse<TransactionStateResponse>>() {}
+    );
+    assertNull(response.getErrors());
+    assertNotNull(response.getData());
+    return response.getData();
 }
 
-// TC-03
+private String getStatError(ResultMatcher expectedStatus, MockHttpServletRequestBuilder request) throws Exception {
+    String content = mockMvc.perform(request)
+        .andExpect(expectedStatus)
+        .andReturn().getResponse().getContentAsString();
+
+    WebResponse<String> response = objectMapper.readValue(
+        content,
+        new TypeReference<WebResponse<String>>() {}
+    );
+    assertNotNull(response.getErrors());
+    return response.getErrors();
+}
+
+private void assertStatistic(TransactionStateResponse.Statistic statistic, String amount, String changePercentage) {
+    assertEquals(0, new BigDecimal(amount).compareTo(statistic.getAmount()), "amount");
+    assertEquals(0, new BigDecimal(changePercentage).compareTo(statistic.getChangePercentage()), "changePercentage");
+}
+
+// Sep 2026 vs Agu 2026
+private void assertSeptemberVsAugust(TransactionStateResponse data) {
+    assertStatistic(data.getTotalIncome(), "12100000", "21.00");
+    assertStatistic(data.getTotalExpense(), "2000000", "-13.04");
+    assertStatistic(data.getTotalSaving(), "1500000", "50.00");
+    assertStatistic(data.getTotalBalance(), "8600000", "28.36");
+}
+
+
+// ===================== type: default / MONTHLY =====================
+
+@Test
+void testGetStatDefaultTypeIsMonthly() throws Exception {
+    assertSeptemberVsAugust(getStatOk());
+}
+
+@Test
+void testGetStatDefaultTypeWithBlankType() throws Exception {
+    assertSeptemberVsAugust(getStatOk("type", ""));
+}
+
+@Test
+void testGetStatMonthly() throws Exception {
+    assertSeptemberVsAugust(getStatOk("type", "MONTHLY"));
+}
+
+@Test
+void testGetStatTypeCaseInsensitive() throws Exception {
+    assertSeptemberVsAugust(getStatOk("type", "monthly"));
+    assertSeptemberVsAugust(getStatOk("type", " Monthly "));
+}
+
+@Test
+void testGetStatMonthlyIgnoresStartDateAndEndDate() throws Exception {
+    // startDate/endDate hanya dipakai untuk CUSTOM
+    assertSeptemberVsAugust(getStatOk(
+        "type", "MONTHLY",
+        "startDate", "2026-12-01",
+        "endDate", "2026-12-31"
+    ));
+}
+
+@Test
+void testGetStatWithoutTypeIgnoresStartDateAndEndDate() throws Exception {
+    assertSeptemberVsAugust(getStatOk("startDate", "2026-12-01", "endDate", "2026-12-31"));
+}
+
+@Test
+void testGetStatMonthlyPeriodBoundary() throws Exception {
+    TransactionStateResponse data = getStatOk("type", "MONTHLY");
+
+    // 09-01 00:00 & 09-30 23:59:59 masuk, 10-01 00:00 tidak masuk
+    assertStatistic(data.getTotalIncome(), "12100000", "21.00");
+    // 08-31 23:59:59 tidak masuk September, tapi masuk pembanding Agustus (2.300.000)
+    assertStatistic(data.getTotalExpense(), "2000000", "-13.04");
+}
+
 @Test
 void testGetStatExcludeSoftDeletedTransaction() throws Exception {
-    mockMvc.perform(
-        get("/api/transaction/stat")
-            .param("startDate", "2026-09-01")
-            .param("endDate", "2026-09-30")
-            .accept(MediaType.APPLICATION_JSON)
-            .header("Authorization", "Bearer test")
-    )
-    .andExpect(status().isOk())
-    .andDo(result -> {
-        WebResponse<TransactionStateResponse> response = objectMapper.readValue(
-            result.getResponse().getContentAsString(),
-            new TypeReference<WebResponse<TransactionStateResponse>>() {}
-        );
-        assertNull(response.getErrors());
-        // transaksi 999.000 yang di-soft delete tidak ikut dihitung
-        assertEquals(0, new BigDecimal("2000000").compareTo(response.getData().getTotalExpense().getAmount()));
-    });
+    // transaksi 999.000 yang di-soft delete tidak ikut dihitung
+    assertStatistic(getStatOk().getTotalExpense(), "2000000", "-13.04");
 }
-
 
 @Test
 void testGetStatExcludeOtherUserTransaction() throws Exception {
-    mockMvc.perform(
-        get("/api/transaction/stat")
-            .param("startDate", "2026-09-01")
-            .param("endDate", "2026-09-30")
-            .accept(MediaType.APPLICATION_JSON)
-            .header("Authorization", "Bearer test")
-    )
-    .andExpect(status().isOk())
-    .andDo(result -> {
-        WebResponse<TransactionStateResponse> response = objectMapper.readValue(
-            result.getResponse().getContentAsString(),
-            new TypeReference<WebResponse<TransactionStateResponse>>() {}
-        );
-        assertNull(response.getErrors());
-        // income 7.000.000 milik user B tidak ikut dihitung
-        assertEquals(0, new BigDecimal("12100000").compareTo(response.getData().getTotalIncome().getAmount()));
-    });
+    // income 7.000.000 milik user B tidak ikut dihitung
+    assertStatistic(getStatOk().getTotalIncome(), "12100000", "21.00");
 }
-
 
 @Test
-void testGetStatPeriodBoundary() throws Exception {
-    mockMvc.perform(
-        get("/api/transaction/stat")
-            .param("startDate", "2026-09-01")
-            .param("endDate", "2026-09-30")
-            .accept(MediaType.APPLICATION_JSON)
-            .header("Authorization", "Bearer test")
-    )
-    .andExpect(status().isOk())
-    .andDo(result -> {
-        WebResponse<TransactionStateResponse> response = objectMapper.readValue(
-            result.getResponse().getContentAsString(),
-            new TypeReference<WebResponse<TransactionStateResponse>>() {}
-        );
-        assertNull(response.getErrors());
-        assertEquals(0, new BigDecimal("12100000").compareTo(response.getData().getTotalIncome().getAmount()));
-    });
+void testGetStatSavingReducesBalance() throws Exception {
+    // 12.100.000 - 2.000.000 - 1.500.000
+    assertStatistic(getStatOk().getTotalBalance(), "8600000", "28.36");
 }
 
-// TC-08
-@Test
-void testGetStatLastDayOfPreviousMonthInComparison() throws Exception {
-    mockMvc.perform(
-        get("/api/transaction/stat")
-            .param("startDate", "2026-09-01")
-            .param("endDate", "2026-09-30")
-            .accept(MediaType.APPLICATION_JSON)
-            .header("Authorization", "Bearer test")
-    )
-    .andExpect(status().isOk())
-    .andDo(result -> {
-        WebResponse<TransactionStateResponse> response = objectMapper.readValue(
-            result.getResponse().getContentAsString(),
-            new TypeReference<WebResponse<TransactionStateResponse>>() {}
-        );
-        assertNull(response.getErrors());
-        // 300.000 (08-31 23:59:59) tidak masuk September, tapi masuk pembanding Agustus (2.300.000)
-        assertEquals(0, new BigDecimal("2000000").compareTo(response.getData().getTotalExpense().getAmount()));
-        assertEquals(0, new BigDecimal("-13.04").compareTo(response.getData().getTotalExpense().getChangePercentage()));
-    });
-}
-
-// TC-09
-@Test
-void testGetStatSingleDayPeriod() throws Exception {
-    mockMvc.perform(
-        get("/api/transaction/stat")
-            .param("startDate", "2026-09-05")
-            .param("endDate", "2026-09-05")
-            .accept(MediaType.APPLICATION_JSON)
-            .header("Authorization", "Bearer test")
-    )
-    .andExpect(status().isOk())
-    .andDo(result -> {
-        WebResponse<TransactionStateResponse> response = objectMapper.readValue(
-            result.getResponse().getContentAsString(),
-            new TypeReference<WebResponse<TransactionStateResponse>>() {}
-        );
-        assertNull(response.getErrors());
-        assertEquals(0, new BigDecimal("500000").compareTo(response.getData().getTotalExpense().getAmount()));
-        assertEquals(0, BigDecimal.ZERO.compareTo(response.getData().getTotalIncome().getAmount()));
-        assertEquals(0, BigDecimal.ZERO.compareTo(response.getData().getTotalSaving().getAmount()));
-        assertEquals(0, new BigDecimal("-500000").compareTo(response.getData().getTotalBalance().getAmount()));
-    });
-}
-
-// TC-10
-@Test
-void testGetStatEmptyPeriod() throws Exception {
-    mockMvc.perform(
-        get("/api/transaction/stat")
-            .param("startDate", "2026-12-01")
-            .param("endDate", "2026-12-31")
-            .accept(MediaType.APPLICATION_JSON)
-            .header("Authorization", "Bearer test")
-    )
-    .andExpect(status().isOk())
-    .andDo(result -> {
-        WebResponse<TransactionStateResponse> response = objectMapper.readValue(
-            result.getResponse().getContentAsString(),
-            new TypeReference<WebResponse<TransactionStateResponse>>() {}
-        );
-        assertNull(response.getErrors());
-        assertEquals(0, BigDecimal.ZERO.compareTo(response.getData().getTotalIncome().getAmount()));
-        assertEquals(0, BigDecimal.ZERO.compareTo(response.getData().getTotalIncome().getChangePercentage()));
-        assertEquals(0, BigDecimal.ZERO.compareTo(response.getData().getTotalExpense().getAmount()));
-        assertEquals(0, BigDecimal.ZERO.compareTo(response.getData().getTotalExpense().getChangePercentage()));
-        assertEquals(0, BigDecimal.ZERO.compareTo(response.getData().getTotalSaving().getAmount()));
-        assertEquals(0, BigDecimal.ZERO.compareTo(response.getData().getTotalSaving().getChangePercentage()));
-        assertEquals(0, BigDecimal.ZERO.compareTo(response.getData().getTotalBalance().getAmount()));
-        assertEquals(0, BigDecimal.ZERO.compareTo(response.getData().getTotalBalance().getChangePercentage()));
-    });
-}
-
-// TC-11
-@Test
-void testGetStatPreviousMonthEmpty() throws Exception {
-    mockMvc.perform(
-        get("/api/transaction/stat")
-            .param("startDate", "2026-08-01")
-            .param("endDate", "2026-08-31")
-            .accept(MediaType.APPLICATION_JSON)
-            .header("Authorization", "Bearer test")
-    )
-    .andExpect(status().isOk())
-    .andDo(result -> {
-        WebResponse<TransactionStateResponse> response = objectMapper.readValue(
-            result.getResponse().getContentAsString(),
-            new TypeReference<WebResponse<TransactionStateResponse>>() {}
-        );
-        assertNull(response.getErrors());
-        assertEquals(0, new BigDecimal("100.00").compareTo(response.getData().getTotalIncome().getChangePercentage()));
-        assertEquals(0, new BigDecimal("100.00").compareTo(response.getData().getTotalExpense().getChangePercentage()));
-        assertEquals(0, new BigDecimal("100.00").compareTo(response.getData().getTotalSaving().getChangePercentage()));
-        assertEquals(0, new BigDecimal("100.00").compareTo(response.getData().getTotalBalance().getChangePercentage()));
-    });
-}
-
-// TC-12
-@Test
-void testGetStatCurrentMonthEmpty() throws Exception {
-    mockMvc.perform(
-        get("/api/transaction/stat")
-            .param("startDate", "2026-11-01")
-            .param("endDate", "2026-11-30")
-            .accept(MediaType.APPLICATION_JSON)
-            .header("Authorization", "Bearer test")
-    )
-    .andExpect(status().isOk())
-    .andDo(result -> {
-        WebResponse<TransactionStateResponse> response = objectMapper.readValue(
-            result.getResponse().getContentAsString(),
-            new TypeReference<WebResponse<TransactionStateResponse>>() {}
-        );
-        assertNull(response.getErrors());
-        assertEquals(0, BigDecimal.ZERO.compareTo(response.getData().getTotalIncome().getAmount()));
-        assertEquals(0, new BigDecimal("-100.00").compareTo(response.getData().getTotalIncome().getChangePercentage()));
-        assertEquals(0, new BigDecimal("-100.00").compareTo(response.getData().getTotalBalance().getChangePercentage()));
-    });
-}
-
-// TC-13
 @Test
 void testGetStatNegativePercentage() throws Exception {
     transactionRepository.deleteAll();
     createTransaction(user, investasi, "1000000", LocalDateTime.of(2026, 8, 10, 10, 0), false);
     createTransaction(user, investasi, "750000", LocalDateTime.of(2026, 9, 10, 10, 0), false);
 
-    mockMvc.perform(
-        get("/api/transaction/stat")
-            .param("startDate", "2026-09-01")
-            .param("endDate", "2026-09-30")
-            .accept(MediaType.APPLICATION_JSON)
-            .header("Authorization", "Bearer test")
-    )
-    .andExpect(status().isOk())
-    .andDo(result -> {
-        WebResponse<TransactionStateResponse> response = objectMapper.readValue(
-            result.getResponse().getContentAsString(),
-            new TypeReference<WebResponse<TransactionStateResponse>>() {}
-        );
-        assertNull(response.getErrors());
-        assertEquals(0, new BigDecimal("-25.00").compareTo(response.getData().getTotalSaving().getChangePercentage()));
-    });
+    assertStatistic(getStatOk().getTotalSaving(), "750000", "-25.00");
 }
 
 @Test
@@ -420,22 +278,7 @@ void testGetStatPercentageRoundDown() throws Exception {
     createTransaction(user, gaji, "300000", LocalDateTime.of(2026, 8, 10, 10, 0), false);
     createTransaction(user, gaji, "400000", LocalDateTime.of(2026, 9, 10, 10, 0), false);
 
-    mockMvc.perform(
-        get("/api/transaction/stat")
-            .param("startDate", "2026-09-01")
-            .param("endDate", "2026-09-30")
-            .accept(MediaType.APPLICATION_JSON)
-            .header("Authorization", "Bearer test")
-    )
-    .andExpect(status().isOk())
-    .andDo(result -> {
-        WebResponse<TransactionStateResponse> response = objectMapper.readValue(
-            result.getResponse().getContentAsString(),
-            new TypeReference<WebResponse<TransactionStateResponse>>() {}
-        );
-        assertNull(response.getErrors());
-        assertEquals(0, new BigDecimal("33.33").compareTo(response.getData().getTotalIncome().getChangePercentage()));
-    });
+    assertStatistic(getStatOk().getTotalIncome(), "400000", "33.33");
 }
 
 @Test
@@ -444,47 +287,17 @@ void testGetStatPercentageRoundUp() throws Exception {
     createTransaction(user, gaji, "600000", LocalDateTime.of(2026, 8, 10, 10, 0), false);
     createTransaction(user, gaji, "700000", LocalDateTime.of(2026, 9, 10, 10, 0), false);
 
-    mockMvc.perform(
-        get("/api/transaction/stat")
-            .param("startDate", "2026-09-01")
-            .param("endDate", "2026-09-30")
-            .accept(MediaType.APPLICATION_JSON)
-            .header("Authorization", "Bearer test")
-    )
-    .andExpect(status().isOk())
-    .andDo(result -> {
-        WebResponse<TransactionStateResponse> response = objectMapper.readValue(
-            result.getResponse().getContentAsString(),
-            new TypeReference<WebResponse<TransactionStateResponse>>() {}
-        );
-        assertNull(response.getErrors());
-        assertEquals(0, new BigDecimal("16.67").compareTo(response.getData().getTotalIncome().getChangePercentage()));
-    });
+    assertStatistic(getStatOk().getTotalIncome(), "700000", "16.67");
 }
 
-
 @Test
-void testGetStatNegativeBalance() throws Exception {
+void testGetStatNegativeBalanceShownAsDeficit() throws Exception {
     transactionRepository.deleteAll();
     createTransaction(user, gaji, "1000000", LocalDateTime.of(2026, 9, 10, 10, 0), false);
     createTransaction(user, tagihan, "3000000", LocalDateTime.of(2026, 9, 11, 10, 0), false);
 
-    mockMvc.perform(
-        get("/api/transaction/stat")
-            .param("startDate", "2026-09-01")
-            .param("endDate", "2026-09-30")
-            .accept(MediaType.APPLICATION_JSON)
-            .header("Authorization", "Bearer test")
-    )
-    .andExpect(status().isOk())
-    .andDo(result -> {
-        WebResponse<TransactionStateResponse> response = objectMapper.readValue(
-            result.getResponse().getContentAsString(),
-            new TypeReference<WebResponse<TransactionStateResponse>>() {}
-        );
-        assertNull(response.getErrors());
-        assertEquals(0, new BigDecimal("-2000000").compareTo(response.getData().getTotalBalance().getAmount()));
-    });
+    // balance defisit -2.000.000 tetap ditampilkan negatif, bulan lalu kosong
+    assertStatistic(getStatOk().getTotalBalance(), "-2000000", "-100.00");
 }
 
 @Test
@@ -494,47 +307,9 @@ void testGetStatPreviousBalanceNegative() throws Exception {
     createTransaction(user, tagihan, "3000000", LocalDateTime.of(2026, 8, 11, 10, 0), false);
     createTransaction(user, gaji, "1000000", LocalDateTime.of(2026, 9, 10, 10, 0), false);
 
-    mockMvc.perform(
-        get("/api/transaction/stat")
-            .param("startDate", "2026-09-01")
-            .param("endDate", "2026-09-30")
-            .accept(MediaType.APPLICATION_JSON)
-            .header("Authorization", "Bearer test")
-    )
-    .andExpect(status().isOk())
-    .andDo(result -> {
-        WebResponse<TransactionStateResponse> response = objectMapper.readValue(
-            result.getResponse().getContentAsString(),
-            new TypeReference<WebResponse<TransactionStateResponse>>() {}
-        );
-        assertNull(response.getErrors());
-        assertEquals(0, new BigDecimal("1000000").compareTo(response.getData().getTotalBalance().getAmount()));
-        assertEquals(0, new BigDecimal("150.00").compareTo(response.getData().getTotalBalance().getChangePercentage()));
-    });
+    // (1.000.000 - (-2.000.000)) / |-2.000.000|
+    assertStatistic(getStatOk().getTotalBalance(), "1000000", "150.00");
 }
-
-
-@Test
-void testGetStatSavingNotReduceBalance() throws Exception {
-    mockMvc.perform(
-        get("/api/transaction/stat")
-            .param("startDate", "2026-09-01")
-            .param("endDate", "2026-09-30")
-            .accept(MediaType.APPLICATION_JSON)
-            .header("Authorization", "Bearer test")
-    )
-    .andExpect(status().isOk())
-    .andDo(result -> {
-        WebResponse<TransactionStateResponse> response = objectMapper.readValue(
-            result.getResponse().getContentAsString(),
-            new TypeReference<WebResponse<TransactionStateResponse>>() {}
-        );
-        assertNull(response.getErrors());
-        // 12.100.000 - 2.000.000, saving 1.500.000 tidak dikurangi
-        assertEquals(0, new BigDecimal("10100000").compareTo(response.getData().getTotalBalance().getAmount()));
-    });
-}
-
 
 @Test
 void testGetStatDecimalAmount() throws Exception {
@@ -542,328 +317,329 @@ void testGetStatDecimalAmount() throws Exception {
     createTransaction(user, gaji, "100.50", LocalDateTime.of(2026, 9, 10, 10, 0), false);
     createTransaction(user, gaji, "200.25", LocalDateTime.of(2026, 9, 11, 10, 0), false);
 
-    mockMvc.perform(
-        get("/api/transaction/stat")
-            .param("startDate", "2026-09-01")
-            .param("endDate", "2026-09-30")
-            .accept(MediaType.APPLICATION_JSON)
-            .header("Authorization", "Bearer test")
-    )
-    .andExpect(status().isOk())
-    .andDo(result -> {
-        WebResponse<TransactionStateResponse> response = objectMapper.readValue(
-            result.getResponse().getContentAsString(),
-            new TypeReference<WebResponse<TransactionStateResponse>>() {}
-        );
-        assertNull(response.getErrors());
-        assertEquals(0, new BigDecimal("300.75").compareTo(response.getData().getTotalIncome().getAmount()));
-    });
+    assertStatistic(getStatOk().getTotalIncome(), "300.75", "100.00");
 }
-
 
 @Test
 void testGetStatCategoryTypeChangeAffectsHistory() throws Exception {
     investasi.setType(TransactionType.EXPENSE.name());
     categoryRepository.save(investasi);
 
-    mockMvc.perform(
-        get("/api/transaction/stat")
-            .param("startDate", "2026-09-01")
-            .param("endDate", "2026-09-30")
-            .accept(MediaType.APPLICATION_JSON)
-            .header("Authorization", "Bearer test")
-    )
-    .andExpect(status().isOk())
-    .andDo(result -> {
-        WebResponse<TransactionStateResponse> response = objectMapper.readValue(
-            result.getResponse().getContentAsString(),
-            new TypeReference<WebResponse<TransactionStateResponse>>() {}
-        );
-        assertNull(response.getErrors());
-        // transaksi Investasi 1.500.000 pindah dari saving ke expense
-        assertEquals(0, new BigDecimal("3500000").compareTo(response.getData().getTotalExpense().getAmount()));
-        assertEquals(0, BigDecimal.ZERO.compareTo(response.getData().getTotalSaving().getAmount()));
-    });
-}
+    TransactionStateResponse data = getStatOk();
 
-
-@Test
-void testGetStatCustomPeriodComparedToFullPreviousMonth() throws Exception {
-    mockMvc.perform(
-        get("/api/transaction/stat")
-            .param("startDate", "2026-09-10")
-            .param("endDate", "2026-09-20")
-            .accept(MediaType.APPLICATION_JSON)
-            .header("Authorization", "Bearer test")
-    )
-    .andExpect(status().isOk())
-    .andDo(result -> {
-        WebResponse<TransactionStateResponse> response = objectMapper.readValue(
-            result.getResponse().getContentAsString(),
-            new TypeReference<WebResponse<TransactionStateResponse>>() {}
-        );
-        assertNull(response.getErrors());
-        assertEquals(0, BigDecimal.ZERO.compareTo(response.getData().getTotalIncome().getAmount()));
-        assertEquals(0, new BigDecimal("-100.00").compareTo(response.getData().getTotalIncome().getChangePercentage()));
-        assertEquals(0, new BigDecimal("1500000").compareTo(response.getData().getTotalExpense().getAmount()));
-        assertEquals(0, new BigDecimal("-34.78").compareTo(response.getData().getTotalExpense().getChangePercentage()));
-        assertEquals(0, BigDecimal.ZERO.compareTo(response.getData().getTotalSaving().getAmount()));
-        assertEquals(0, new BigDecimal("-100.00").compareTo(response.getData().getTotalSaving().getChangePercentage()));
-        assertEquals(0, new BigDecimal("-1500000").compareTo(response.getData().getTotalBalance().getAmount()));
-        assertEquals(0, new BigDecimal("-119.48").compareTo(response.getData().getTotalBalance().getChangePercentage()));
-    });
-}
-
-
-@Test
-void testGetStatCrossMonthPeriod() throws Exception {
-    mockMvc.perform(
-        get("/api/transaction/stat")
-            .param("startDate", "2026-08-15")
-            .param("endDate", "2026-09-15")
-            .accept(MediaType.APPLICATION_JSON)
-            .header("Authorization", "Bearer test")
-    )
-    .andExpect(status().isOk())
-    .andDo(result -> {
-        WebResponse<TransactionStateResponse> response = objectMapper.readValue(
-            result.getResponse().getContentAsString(),
-            new TypeReference<WebResponse<TransactionStateResponse>>() {}
-        );
-        assertNull(response.getErrors());
-        assertEquals(0, new BigDecimal("12000000").compareTo(response.getData().getTotalIncome().getAmount()));
-        assertEquals(0, new BigDecimal("4300000").compareTo(response.getData().getTotalExpense().getAmount()));
-        assertEquals(0, new BigDecimal("2500000").compareTo(response.getData().getTotalSaving().getAmount()));
-        // pembanding = Juli (kosong), bukan Agustus
-        assertEquals(0, new BigDecimal("100.00").compareTo(response.getData().getTotalIncome().getChangePercentage()));
-        assertEquals(0, new BigDecimal("100.00").compareTo(response.getData().getTotalExpense().getChangePercentage()));
-        assertEquals(0, new BigDecimal("100.00").compareTo(response.getData().getTotalSaving().getChangePercentage()));
-        assertEquals(0, new BigDecimal("100.00").compareTo(response.getData().getTotalBalance().getChangePercentage()));
-    });
+    // transaksi Investasi 1.500.000 (Sep) & 1.000.000 (Agu) pindah dari saving ke expense
+    assertStatistic(data.getTotalExpense(), "3500000", "6.06");
+    assertStatistic(data.getTotalSaving(), "0", "0.00");
 }
 
 @Test
-void testGetStatJanuaryComparedToPreviousYearDecember() throws Exception {
+void testGetStatMonthlyNoTransaction() throws Exception {
+    transactionRepository.deleteAll();
+
+    TransactionStateResponse data = getStatOk();
+
+    assertStatistic(data.getTotalIncome(), "0", "0.00");
+    assertStatistic(data.getTotalExpense(), "0", "0.00");
+    assertStatistic(data.getTotalSaving(), "0", "0.00");
+    assertStatistic(data.getTotalBalance(), "0", "0.00");
+}
+
+
+// ===================== type: YEARLY =====================
+
+@Test
+void testGetStatYearlyPreviousYearEmpty() throws Exception {
+    TransactionStateResponse data = getStatOk("type", "YEARLY");
+
+    // seluruh 2026 (termasuk Oktober), dibanding 2025 yang kosong
+    assertStatistic(data.getTotalIncome(), "27100000", "100.00");
+    assertStatistic(data.getTotalExpense(), "4300000", "100.00");
+    assertStatistic(data.getTotalSaving(), "2500000", "100.00");
+    assertStatistic(data.getTotalBalance(), "20300000", "100.00");
+}
+
+@Test
+void testGetStatYearlyComparedToPreviousYear() throws Exception {
+    createTransaction(user, gaji, "20000000", LocalDateTime.of(2025, 12, 31, 23, 59, 59), false);
+    createTransaction(user, tagihan, "5000000", LocalDateTime.of(2025, 1, 1, 0, 0), false);
+    createTransaction(user, investasi, "2500000", LocalDateTime.of(2025, 6, 1, 10, 0), false);
+
+    TransactionStateResponse data = getStatOk("type", "YEARLY");
+
+    assertStatistic(data.getTotalIncome(), "27100000", "35.50");
+    assertStatistic(data.getTotalExpense(), "4300000", "-14.00");
+    assertStatistic(data.getTotalSaving(), "2500000", "0.00");
+    // 20.300.000 vs 12.500.000
+    assertStatistic(data.getTotalBalance(), "20300000", "62.40");
+}
+
+@Test
+void testGetStatYearlyBoundary() throws Exception {
+    transactionRepository.deleteAll();
+    createTransaction(user, gaji, "1000000", LocalDateTime.of(2026, 1, 1, 0, 0), false);
+    createTransaction(user, gaji, "2000000", LocalDateTime.of(2026, 12, 31, 23, 59, 59), false);
+    createTransaction(user, gaji, "9000000", LocalDateTime.of(2027, 1, 1, 0, 0), false);
+    createTransaction(user, gaji, "1500000", LocalDateTime.of(2025, 1, 1, 0, 0), false);
+    createTransaction(user, gaji, "7000000", LocalDateTime.of(2024, 12, 31, 23, 59, 59), false);
+
+    // 2026: 3.000.000, 2025: 1.500.000
+    assertStatistic(getStatOk("type", "YEARLY").getTotalIncome(), "3000000", "100.00");
+}
+
+
+// ===================== type: WEEKLY =====================
+
+@Test
+void testGetStatWeekly() throws Exception {
+    transactionRepository.deleteAll();
+    // minggu ini: 09-18 00:00 s/d 09-24 23:59:59
+    createTransaction(user, gaji, "1000000", LocalDateTime.of(2026, 9, 18, 0, 0), false);
+    createTransaction(user, investasi, "300000", LocalDateTime.of(2026, 9, 20, 10, 0), false);
+    createTransaction(user, makanan, "200000", LocalDateTime.of(2026, 9, 24, 23, 59, 59), false);
+    // minggu lalu: 09-11 00:00 s/d 09-17 23:59:59
+    createTransaction(user, tagihan, "400000", LocalDateTime.of(2026, 9, 11, 0, 0), false);
+    createTransaction(user, gaji, "800000", LocalDateTime.of(2026, 9, 17, 23, 59, 59), false);
+    // di luar kedua periode
+    createTransaction(user, gaji, "9999999", LocalDateTime.of(2026, 9, 25, 0, 0), false);
+    createTransaction(user, tagihan, "5000000", LocalDateTime.of(2026, 9, 10, 23, 59, 59), false);
+
+    TransactionStateResponse data = getStatOk("type", "WEEKLY");
+
+    assertStatistic(data.getTotalIncome(), "1000000", "25.00");
+    assertStatistic(data.getTotalExpense(), "200000", "-50.00");
+    assertStatistic(data.getTotalSaving(), "300000", "100.00");
+    assertStatistic(data.getTotalBalance(), "500000", "25.00");
+}
+
+@Test
+void testGetStatWeeklyNoTransactionInFixture() throws Exception {
+    // fixture tidak punya transaksi aktif di 09-11 s/d 09-24 (999.000 di 09-12 soft delete)
+    TransactionStateResponse data = getStatOk("type", "weekly");
+
+    assertStatistic(data.getTotalIncome(), "0", "0.00");
+    assertStatistic(data.getTotalExpense(), "0", "0.00");
+    assertStatistic(data.getTotalSaving(), "0", "0.00");
+    assertStatistic(data.getTotalBalance(), "0", "0.00");
+}
+
+
+// ===================== type: CUSTOM =====================
+
+@Test
+void testGetStatCustomFullMonth() throws Exception {
+    TransactionStateResponse data = getStatOk(
+        "type", "CUSTOM",
+        "startDate", "2026-09-01",
+        "endDate", "2026-09-30"
+    );
+
+    // pembanding = 30 hari sebelumnya (08-02 s/d 08-31), gaji 08-01 tidak ikut
+    assertStatistic(data.getTotalIncome(), "12100000", "100.00");
+    assertStatistic(data.getTotalExpense(), "2000000", "-13.04");
+    assertStatistic(data.getTotalSaving(), "1500000", "50.00");
+    // (8.600.000 - (-3.300.000)) / 3.300.000
+    assertStatistic(data.getTotalBalance(), "8600000", "360.61");
+}
+
+@Test
+void testGetStatCustomSingleDay() throws Exception {
+    TransactionStateResponse data = getStatOk(
+        "type", "CUSTOM",
+        "startDate", "2026-09-05",
+        "endDate", "2026-09-05"
+    );
+
+    // pembanding = 09-04
+    assertStatistic(data.getTotalIncome(), "0", "0.00");
+    assertStatistic(data.getTotalExpense(), "500000", "100.00");
+    assertStatistic(data.getTotalSaving(), "0", "0.00");
+    // defisit -500.000 dari 0
+    assertStatistic(data.getTotalBalance(), "-500000", "-100.00");
+}
+
+@Test
+void testGetStatCustomArbitraryPeriod() throws Exception {
+    TransactionStateResponse data = getStatOk(
+        "type", "CUSTOM",
+        "startDate", "2026-09-10",
+        "endDate", "2026-09-20"
+    );
+
+    // 11 hari, pembanding = 08-30 s/d 09-09
+    assertStatistic(data.getTotalIncome(), "0", "-100.00");
+    assertStatistic(data.getTotalExpense(), "1500000", "87.50");
+    assertStatistic(data.getTotalSaving(), "0", "-100.00");
+    // (-1.500.000 - 9.700.000) / 9.700.000
+    assertStatistic(data.getTotalBalance(), "-1500000", "-115.46");
+}
+
+@Test
+void testGetStatCustomCrossMonthPeriod() throws Exception {
+    TransactionStateResponse data = getStatOk(
+        "type", "CUSTOM",
+        "startDate", "2026-08-15",
+        "endDate", "2026-09-15"
+    );
+
+    // 32 hari, pembanding = 07-14 s/d 08-14 (hanya gaji 08-01)
+    assertStatistic(data.getTotalIncome(), "12000000", "20.00");
+    assertStatistic(data.getTotalExpense(), "4300000", "100.00");
+    assertStatistic(data.getTotalSaving(), "2500000", "100.00");
+    assertStatistic(data.getTotalBalance(), "5200000", "-48.00");
+}
+
+@Test
+void testGetStatCustomPreviousPeriodEmpty() throws Exception {
+    TransactionStateResponse data = getStatOk(
+        "type", "CUSTOM",
+        "startDate", "2026-08-01",
+        "endDate", "2026-08-31"
+    );
+
+    assertStatistic(data.getTotalIncome(), "10000000", "100.00");
+    assertStatistic(data.getTotalExpense(), "2300000", "100.00");
+    assertStatistic(data.getTotalSaving(), "1000000", "100.00");
+    assertStatistic(data.getTotalBalance(), "6700000", "100.00");
+}
+
+@Test
+void testGetStatCustomCurrentPeriodEmpty() throws Exception {
+    TransactionStateResponse data = getStatOk(
+        "type", "CUSTOM",
+        "startDate", "2026-10-02",
+        "endDate", "2026-10-31"
+    );
+
+    // pembanding = 09-02 s/d 10-01
+    assertStatistic(data.getTotalIncome(), "0", "-100.00");
+    assertStatistic(data.getTotalExpense(), "0", "-100.00");
+    assertStatistic(data.getTotalSaving(), "0", "-100.00");
+    assertStatistic(data.getTotalBalance(), "0", "-100.00");
+}
+
+@Test
+void testGetStatCustomEmptyPeriod() throws Exception {
+    TransactionStateResponse data = getStatOk(
+        "type", "CUSTOM",
+        "startDate", "2026-12-01",
+        "endDate", "2026-12-31"
+    );
+
+    assertStatistic(data.getTotalIncome(), "0", "0.00");
+    assertStatistic(data.getTotalExpense(), "0", "0.00");
+    assertStatistic(data.getTotalSaving(), "0", "0.00");
+    assertStatistic(data.getTotalBalance(), "0", "0.00");
+}
+
+@Test
+void testGetStatCustomCrossYear() throws Exception {
     createTransaction(user, gaji, "1000000", LocalDateTime.of(2026, 12, 15, 10, 0), false);
     createTransaction(user, gaji, "1500000", LocalDateTime.of(2027, 1, 15, 10, 0), false);
 
-    mockMvc.perform(
-        get("/api/transaction/stat")
-            .param("startDate", "2027-01-01")
-            .param("endDate", "2027-01-31")
-            .accept(MediaType.APPLICATION_JSON)
-            .header("Authorization", "Bearer test")
-    )
-    .andExpect(status().isOk())
-    .andDo(result -> {
-        WebResponse<TransactionStateResponse> response = objectMapper.readValue(
-            result.getResponse().getContentAsString(),
-            new TypeReference<WebResponse<TransactionStateResponse>>() {}
-        );
-        assertNull(response.getErrors());
-        assertEquals(0, new BigDecimal("1500000").compareTo(response.getData().getTotalIncome().getAmount()));
-        assertEquals(0, new BigDecimal("50.00").compareTo(response.getData().getTotalIncome().getChangePercentage()));
-    });
-}
+    TransactionStateResponse data = getStatOk(
+        "type", "CUSTOM",
+        "startDate", "2027-01-01",
+        "endDate", "2027-01-31"
+    );
 
-@Test
-void testGetStatBadRequestEndDateBeforeStartDate() throws Exception {
-    mockMvc.perform(
-        get("/api/transaction/stat")
-            .param("startDate", "2026-09-30")
-            .param("endDate", "2026-09-01")
-            .accept(MediaType.APPLICATION_JSON)
-            .header("Authorization", "Bearer test")
-    )
-    .andExpect(status().isBadRequest())
-    .andDo(result -> {
-        WebResponse<String> response = objectMapper.readValue(
-            result.getResponse().getContentAsString(),
-            new TypeReference<WebResponse<String>>() {}
-        );
-        assertEquals("endDate must be after startDate", response.getErrors());
-    });
+    // pembanding = 2026-12-01 s/d 2026-12-31
+    assertStatistic(data.getTotalIncome(), "1500000", "50.00");
 }
 
 
+// ===================== validasi =====================
+
 @Test
-void testGetStatBadRequestOnlyStartDateAfterCurrentMonth() throws Exception {
-    mockMvc.perform(
-        get("/api/transaction/stat")
-            .param("startDate", "2026-11-01")
-            .accept(MediaType.APPLICATION_JSON)
-            .header("Authorization", "Bearer test")
-    )
-    .andExpect(status().isBadRequest())
-    .andDo(result -> {
-        WebResponse<String> response = objectMapper.readValue(
-            result.getResponse().getContentAsString(),
-            new TypeReference<WebResponse<String>>() {}
-        );
-        assertEquals("endDate must be after startDate", response.getErrors());
-    });
+void testGetStatBadRequestInvalidType() throws Exception {
+    String errors = getStatError(status().isBadRequest(), statRequest("type", "DAILY"));
+    assertEquals("Invalid filter type: DAILY", errors);
 }
 
 @Test
-void testGetStatBadRequestOnlyEndDateBeforeCurrentMonth() throws Exception {
-    mockMvc.perform(
-        get("/api/transaction/stat")
-            .param("endDate", "2026-08-15")
-            .accept(MediaType.APPLICATION_JSON)
-            .header("Authorization", "Bearer test")
-    )
-    .andExpect(status().isBadRequest())
-    .andDo(result -> {
-        WebResponse<String> response = objectMapper.readValue(
-            result.getResponse().getContentAsString(),
-            new TypeReference<WebResponse<String>>() {}
-        );
-        assertNotNull(response.getErrors());
-    });
+void testGetStatBadRequestCustomWithoutDates() throws Exception {
+    String errors = getStatError(status().isBadRequest(), statRequest("type", "CUSTOM"));
+    assertEquals("startDate and endDate are required for CUSTOM type", errors);
 }
 
 @Test
-void testGetStatOnlyStartDateSuccess() throws Exception {
-    mockMvc.perform(
-        get("/api/transaction/stat")
-            .param("startDate", "2026-09-10")
-            .accept(MediaType.APPLICATION_JSON)
-            .header("Authorization", "Bearer test")
-    )
-    .andExpect(status().isOk())
-    .andDo(result -> {
-        WebResponse<TransactionStateResponse> response = objectMapper.readValue(
-            result.getResponse().getContentAsString(),
-            new TypeReference<WebResponse<TransactionStateResponse>>() {}
-        );
-        assertNull(response.getErrors());
-        // periode 10-30 Sep
-        assertEquals(0, new BigDecimal("100000").compareTo(response.getData().getTotalIncome().getAmount()));
-        assertEquals(0, new BigDecimal("1500000").compareTo(response.getData().getTotalExpense().getAmount()));
-        assertEquals(0, BigDecimal.ZERO.compareTo(response.getData().getTotalSaving().getAmount()));
-    });
+void testGetStatBadRequestCustomWithoutEndDate() throws Exception {
+    String errors = getStatError(
+        status().isBadRequest(),
+        statRequest("type", "CUSTOM", "startDate", "2026-09-01")
+    );
+    assertEquals("startDate and endDate are required for CUSTOM type", errors);
+}
+
+@Test
+void testGetStatBadRequestCustomWithoutStartDate() throws Exception {
+    String errors = getStatError(
+        status().isBadRequest(),
+        statRequest("type", "CUSTOM", "endDate", "2026-09-30")
+    );
+    assertEquals("startDate and endDate are required for CUSTOM type", errors);
+}
+
+@Test
+void testGetStatBadRequestCustomEndDateBeforeStartDate() throws Exception {
+    String errors = getStatError(
+        status().isBadRequest(),
+        statRequest("type", "CUSTOM", "startDate", "2026-09-30", "endDate", "2026-09-01")
+    );
+    assertEquals("endDate must not be before startDate", errors);
 }
 
 @Test
 void testGetStatBadRequestInvalidDateFormat() throws Exception {
-    mockMvc.perform(
-        get("/api/transaction/stat")
-            .param("startDate", "01-09-2026")
-            .accept(MediaType.APPLICATION_JSON)
-            .header("Authorization", "Bearer test")
-    )
-    .andExpect(status().isBadRequest())
-    .andDo(result -> {
-        WebResponse<String> response = objectMapper.readValue(
-            result.getResponse().getContentAsString(),
-            new TypeReference<WebResponse<String>>() {}
-        );
-        assertNotNull(response.getErrors());
-    });
+    getStatError(status().isBadRequest(), statRequest("type", "CUSTOM", "startDate", "01-09-2026"));
 }
 
 @Test
 void testGetStatBadRequestInvalidMonth() throws Exception {
-    mockMvc.perform(
-        get("/api/transaction/stat")
-            .param("startDate", "2026-13-01")
-            .accept(MediaType.APPLICATION_JSON)
-            .header("Authorization", "Bearer test")
-    )
-    .andExpect(status().isBadRequest())
-    .andDo(result -> {
-        WebResponse<String> response = objectMapper.readValue(
-            result.getResponse().getContentAsString(),
-            new TypeReference<WebResponse<String>>() {}
-        );
-        assertNotNull(response.getErrors());
-    });
+    getStatError(status().isBadRequest(), statRequest("type", "CUSTOM", "startDate", "2026-13-01"));
 }
-
 
 @Test
 void testGetStatBadRequestNonDateValue() throws Exception {
-    mockMvc.perform(
-        get("/api/transaction/stat")
-            .param("startDate", "abc")
-            .accept(MediaType.APPLICATION_JSON)
-            .header("Authorization", "Bearer test")
-    )
-    .andExpect(status().isBadRequest())
-    .andDo(result -> {
-        WebResponse<String> response = objectMapper.readValue(
-            result.getResponse().getContentAsString(),
-            new TypeReference<WebResponse<String>>() {}
-        );
-        assertNotNull(response.getErrors());
-    });
+    getStatError(status().isBadRequest(), statRequest("type", "CUSTOM", "startDate", "abc"));
 }
+
+
+// ===================== autentikasi =====================
 
 @Test
 void testGetStatUnauthorizedWithoutHeader() throws Exception {
-    mockMvc.perform(
-        get("/api/transaction/stat")
-            .accept(MediaType.APPLICATION_JSON)
-    )
-    .andExpect(status().isUnauthorized())
-    .andDo(result -> {
-        WebResponse<String> response = objectMapper.readValue(
-            result.getResponse().getContentAsString(),
-            new TypeReference<WebResponse<String>>() {}
-        );
-        assertEquals("Unauthorized", response.getErrors());
-    });
+    String errors = getStatError(
+        status().isUnauthorized(),
+        get("/api/transaction/stat").accept(MediaType.APPLICATION_JSON)
+    );
+    assertEquals("Unauthorized", errors);
 }
 
 @Test
 void testGetStatUnauthorizedInvalidToken() throws Exception {
-    mockMvc.perform(
-        get("/api/transaction/stat")
-            .accept(MediaType.APPLICATION_JSON)
-            .header("Authorization", "Bearer invalid-token")
-    )
-    .andExpect(status().isUnauthorized())
-    .andDo(result -> {
-        WebResponse<String> response = objectMapper.readValue(
-            result.getResponse().getContentAsString(),
-            new TypeReference<WebResponse<String>>() {}
-        );
-        assertEquals("Unauthorized", response.getErrors());
-    });
+    String errors = getStatError(
+        status().isUnauthorized(),
+        get("/api/transaction/stat").accept(MediaType.APPLICATION_JSON).header("Authorization", "Bearer invalid-token")
+    );
+    assertEquals("Unauthorized", errors);
 }
 
 @Test
 void testGetStatUnauthorizedBlankToken() throws Exception {
-    mockMvc.perform(
-        get("/api/transaction/stat")
-            .accept(MediaType.APPLICATION_JSON)
-            .header("Authorization", "Bearer ")
-    )
-    .andExpect(status().isUnauthorized())
-    .andDo(result -> {
-        WebResponse<String> response = objectMapper.readValue(
-            result.getResponse().getContentAsString(),
-            new TypeReference<WebResponse<String>>() {}
-        );
-        assertEquals("Unauthorized", response.getErrors());
-    });
+    String errors = getStatError(
+        status().isUnauthorized(),
+        get("/api/transaction/stat").accept(MediaType.APPLICATION_JSON).header("Authorization", "Bearer ")
+    );
+    assertEquals("Unauthorized", errors);
 }
 
 @Test
 void testGetStatUnauthorizedWithoutBearerPrefix() throws Exception {
-    mockMvc.perform(
-        get("/api/transaction/stat")
-            .accept(MediaType.APPLICATION_JSON)
-            .header("Authorization", "test")
-    )
-    .andExpect(status().isUnauthorized())
-    .andDo(result -> {
-        WebResponse<String> response = objectMapper.readValue(
-            result.getResponse().getContentAsString(),
-            new TypeReference<WebResponse<String>>() {}
-        );
-        assertEquals("Unauthorized", response.getErrors());
-    });
+    String errors = getStatError(
+        status().isUnauthorized(),
+        get("/api/transaction/stat").accept(MediaType.APPLICATION_JSON).header("Authorization", "test")
+    );
+    assertEquals("Unauthorized", errors);
 }
 
 }

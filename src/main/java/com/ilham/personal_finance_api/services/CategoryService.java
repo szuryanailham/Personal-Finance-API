@@ -88,7 +88,7 @@ public class CategoryService {
         Pageable pageable = PageRequest.of(skip/ limit, limit);
         
             Page<Category> categories =
-            categoryRepository.findAllByUser(user, pageable);
+            categoryRepository.findAllByUserAndIsDeletedFalse(user, pageable);
 
         return categories.map(this::toCategoryResponse);
     }
@@ -103,7 +103,7 @@ public class CategoryService {
     public void delete(User user, UUID categoryID) {
         Category category = categoryRepository.findByIdAndUser(categoryID, user)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Category not found"));
-        categoryRepository.delete(category);
+        category.setDeleted(true);
     }
 
     @Transactional

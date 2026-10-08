@@ -28,18 +28,14 @@ public class Category {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
-    
     private UUID id;
-
     private String name;
-
     private String type;
-
     @OneToMany(mappedBy = "category")
     private List<Transaction> transactions;
-
     @ManyToOne
     @JoinColumn(name = "user_id")
     private User user;
+    private boolean isDeleted;
 
 }

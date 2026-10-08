@@ -6,8 +6,10 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Limit;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -15,10 +17,50 @@ import com.ilham.personal_finance_api.dto.TransactionStatisticResponse.Transacti
 import com.ilham.personal_finance_api.entity.Transaction;
 import com.ilham.personal_finance_api.entity.User;
 
-public interface TransactionRepository extends JpaRepository<Transaction, String>, JpaSpecificationExecutor<Transaction> {
+public interface TransactionRepository extends JpaRepository<Transaction, String> {
     boolean existsByTransactionCode(String transactionCode);
     Optional<Transaction> findTopByTransactionCodeStartingWithOrderByTransactionCodeDesc(String prefix);
-    Optional<Transaction> findByUserAndTransactionCode(User user, String transactionCode);
+    Optional<Transaction> findByUserAndTransactionCodeAndIsDeletedFalse(User user, String transactionCode);
+
+    @Query("""
+        SELECT t
+        FROM Transaction t
+        WHERE t.user = :user
+        AND t.isDeleted = false
+        AND (:search IS NULL
+            OR LOWER(t.transactionName) LIKE :search
+            OR LOWER(t.description) LIKE :search)
+        AND (CAST(:start AS LocalDateTime) IS NULL OR t.transactionDate >= :start)
+        AND (CAST(:end AS LocalDateTime) IS NULL OR t.transactionDate < :end)
+        AND (:type IS NULL OR t.category.type = :type)
+        """)
+    Page<Transaction> findAllActive(
+        @Param("user") User user,
+        @Param("search") String search,
+        @Param("start") LocalDateTime start,
+        @Param("end") LocalDateTime end,
+        @Param("type") String type,
+        Pageable pageable
+    );
+
+    // untuk export: hanya transaksi aktif (is_deleted = false), category ikut di-fetch agar tidak N+1
+    @Query("""
+        SELECT t
+        FROM Transaction t
+        JOIN FETCH t.category
+        WHERE t.user = :user
+        AND t.isDeleted = false
+        AND (CAST(:start AS LocalDateTime) IS NULL OR t.transactionDate >= :start)
+        AND (CAST(:end AS LocalDateTime) IS NULL OR t.transactionDate < :end)
+        ORDER BY t.transactionDate ASC, t.transactionCode ASC
+        """)
+    List<Transaction> findAllActiveForExport(
+        @Param("user") User user,
+        @Param("start") LocalDateTime start,
+        @Param("end") LocalDateTime end,
+        Limit limit
+    );
+
     @Query("""
         SELECT COALESCE(SUM(t.amount), 0)
         FROM Transaction t

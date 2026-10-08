@@ -1,8 +1,6 @@
 package com.ilham.personal_finance_api.controller;
 
-import java.time.Clock;
 import java.time.LocalDate;
-import java.time.temporal.TemporalAdjusters;
 import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,19 +14,32 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import com.ilham.personal_finance_api.entity.User;
+import com.ilham.personal_finance_api.dto.BulkCreateTransactionRequest;
 import com.ilham.personal_finance_api.dto.CreateTransactionRequest;
 import com.ilham.personal_finance_api.dto.CreateTransactionResponse;
 import com.ilham.personal_finance_api.dto.PaginationResponse;
+import com.ilham.personal_finance_api.dto.TransactionExportFilter;
+import com.ilham.personal_finance_api.dto.TransactionExportPeriod;
 import com.ilham.personal_finance_api.dto.TransactionFilter;
 import com.ilham.personal_finance_api.dto.TransactionResponse;
+import com.ilham.personal_finance_api.dto.TransactionStatFilter;
+import com.ilham.personal_finance_api.dto.TransactionStatPeriod;
 import com.ilham.personal_finance_api.dto.TransactionStateResponse;
 import com.ilham.personal_finance_api.dto.TransactionStatisticResponse;
 import com.ilham.personal_finance_api.dto.TransactionType;
 import com.ilham.personal_finance_api.dto.UpdateTransactionRequest;
 import com.ilham.personal_finance_api.dto.WebResponse;
+import com.ilham.personal_finance_api.dto.exporter.ExportFile;
+import com.ilham.personal_finance_api.dto.importer.ImportResponse;
+import com.ilham.personal_finance_api.services.ImportService;
+import com.ilham.personal_finance_api.services.ImportTemplateService;
+import com.ilham.personal_finance_api.services.TransactionExportService;
+import org.springframework.web.multipart.MultipartFile;
 import com.ilham.personal_finance_api.services.TransactionService;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 
 @RestController 
 public class TransactionController {
@@ -37,7 +48,17 @@ public class TransactionController {
     private TransactionService transactionService;
 
     @Autowired
-    private Clock clock;
+    private ImportTemplateService importTemplateService;
+
+    @Autowired
+    private ImportService importService;
+
+    @Autowired
+    private TransactionExportService transactionExportService;
+
+    private static final String IMPORT_TEMPLATE_FILENAME = "personal-finance-import-template.xlsx";
+    private static final MediaType XLSX_MEDIA_TYPE =
+        MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
 
     @PostMapping (
         path = "/api/transaction",
@@ -53,6 +74,20 @@ public class TransactionController {
             null
             , null
         );
+    }
+
+
+    @PostMapping(
+        path = "/api/transaction/bulk",
+        produces = MediaType.APPLICATION_JSON_VALUE,
+        consumes = MediaType.APPLICATION_JSON_VALUE
+    )
+    public WebResponse<List<TransactionResponse>> bulkCreate(User user, @Valid @RequestBody BulkCreateTransactionRequest request) {
+        List<TransactionResponse> transactions = transactionService.bulkCreate(user, request);
+        return WebResponse.<List<TransactionResponse>>builder()
+            .data(transactions)
+            .message(transactions.size() + " transactions saved successfully")
+            .build();
     }
 
 
@@ -107,6 +142,7 @@ public WebResponse<List<TransactionResponse>> getAll(
                     .currentPage(transaction.getNumber() + 1)
                     .totalPage(transaction.getTotalPages())
                     .size(transaction.getSize())
+                    .totalItem(transaction.getTotalElements())
                     .build()
             )
             .build();
@@ -119,23 +155,22 @@ public WebResponse<List<TransactionResponse>> getAll(
     )
     public WebResponse<TransactionStateResponse> getState(
             User user,
+            @RequestParam(required = false) String type,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate
     ) {
-    LocalDate today = LocalDate.now(clock);
-    LocalDate start = startDate != null ? startDate : today.withDayOfMonth(1);
-    LocalDate end = endDate != null ? endDate : today.with(TemporalAdjusters.lastDayOfMonth());
+        TransactionStatFilter filter = TransactionStatFilter.builder()
+            .type(TransactionStatPeriod.fromValue(type))
+            .startDate(startDate)
+            .endDate(endDate)
+            .build();
 
-    TransactionStateResponse state = transactionService.getStat(
-        user,
-        start.atStartOfDay(),
-        end.plusDays(1).atStartOfDay()
-    );
-    return WebResponse.<TransactionStateResponse>builder().data(state).build();
+        TransactionStateResponse state = transactionService.getStat(user, filter);
+        return WebResponse.<TransactionStateResponse>builder().data(state).build();
     }
 
 
-     @GetMapping(
+     @GetMapping( 
         path = "/api/transaction/statistic",
         produces = MediaType.APPLICATION_JSON_VALUE
     )
@@ -168,7 +203,45 @@ public WebResponse<TransactionResponse>update(User user ,
     return WebResponse.<TransactionResponse>builder().data(transactionResponse).build();
 }
 
+    @GetMapping(path = "/api/transaction/import/template")
+    public ResponseEntity<byte[]> downloadImportTemplate(User user) {
+        byte[] file = importTemplateService.getTemplateImport(user);
 
+        return ResponseEntity.ok()
+            .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + IMPORT_TEMPLATE_FILENAME + "\"")
+            .contentType(XLSX_MEDIA_TYPE)
+            .contentLength(file.length)
+            .body(file);
+    }
 
-    
+    @GetMapping(path = "/api/transaction/export")
+    public ResponseEntity<byte[]> exportTransactions(
+            User user,
+            @RequestParam(required = false) String period,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate
+    ) {
+        TransactionExportFilter filter = TransactionExportFilter.builder()
+            .period(TransactionExportPeriod.fromValue(period))
+            .startDate(startDate)
+            .endDate(endDate)
+            .build();
+
+        ExportFile file = transactionExportService.export(user, filter);
+
+        return ResponseEntity.ok()
+            .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + file.filename() + "\"")
+            .contentType(XLSX_MEDIA_TYPE)
+            .contentLength(file.content().length)
+            .body(file.content());
+    }
+
+    @PostMapping(
+        path = "/api/transaction/import",
+        consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
+        produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ImportResponse importTransactions(User user, @RequestParam("file") MultipartFile file) {
+        return importService.importFile(user, file);
+    }
 }

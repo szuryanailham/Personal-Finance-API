@@ -75,6 +75,7 @@ public class CategoryController {
             .currentPage(categories.getNumber() + 1)
             .totalPage(categories.getTotalPages())
             .size(categories.getSize())
+            .totalItem(categories.getTotalElements())
             .build())
         .build();
   }

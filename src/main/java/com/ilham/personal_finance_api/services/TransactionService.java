@@ -5,29 +5,35 @@ import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
-import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.ilham.personal_finance_api.dto.BulkCreateTransactionRequest;
+import com.ilham.personal_finance_api.dto.BulkTransactionItem;
 import com.ilham.personal_finance_api.dto.CategoryResponse;
 import com.ilham.personal_finance_api.dto.CreateTransactionRequest;
 import com.ilham.personal_finance_api.dto.CreateTransactionResponse;
 import com.ilham.personal_finance_api.dto.TransactionFilter;
 import com.ilham.personal_finance_api.dto.TransactionResponse;
 import com.ilham.personal_finance_api.dto.TransactionSort;
+import com.ilham.personal_finance_api.dto.TransactionStatFilter;
 import com.ilham.personal_finance_api.dto.TransactionStateResponse;
 import com.ilham.personal_finance_api.dto.TransactionStatisticResponse;
 import com.ilham.personal_finance_api.dto.TransactionStatisticResponse.TransactionPeriodItemResponse;
@@ -38,18 +44,18 @@ import com.ilham.personal_finance_api.entity.Transaction;
 import com.ilham.personal_finance_api.entity.User;
 import com.ilham.personal_finance_api.repository.CategoryRepository;
 import com.ilham.personal_finance_api.repository.TransactionRepository;
-import com.ilham.personal_finance_api.repository.TransactionSpecification;
 
 @Service
 public class TransactionService {
 
     private static final int PERCENTAGE_SCALE = 2;
     private static final BigDecimal ONE_HUNDRED = BigDecimal.valueOf(100);
-    private static final String TRANSACTION_CODE_PREFIX = "TRX-";
-    private static final DateTimeFormatter TRANSACTION_CODE_DATE_FORMAT = DateTimeFormatter.BASIC_ISO_DATE;
 
     @Autowired
     private TransactionRepository transactionRepository;
+
+    @Autowired
+    private TransactionCodeGenerator transactionCodeGenerator;
 
     @Autowired
     private CategoryRepository categoryRepository;
@@ -60,7 +66,7 @@ public class TransactionService {
     @Autowired
     private Clock clock;
 
-    // create transaction
+    // [MAIN] create transaction
 
     @Transactional
     public CreateTransactionResponse create(User user, CreateTransactionRequest request) {
@@ -69,7 +75,7 @@ public class TransactionService {
         Category category = categoryRepository.findByIdAndUser(request.getCategoryId(), user)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Category not found"));
 
-        String transactionCode = generateTransactionCode();
+        String transactionCode = transactionCodeGenerator.generate();
         Transaction transaction = new Transaction();
         transaction.setTransactionName(request.getTransactonName());
         transaction.setTransactionCode(transactionCode);
@@ -91,31 +97,64 @@ public class TransactionService {
             .build();
     }
 
+    // [MAIN] bulk create transaction (setelah preview import)
+    // all-or-nothing: jika ada category yang tidak valid, tidak ada transaksi yang disimpan.
 
-    // generate transaction code 
+    @Transactional
+    public List<TransactionResponse> bulkCreate(User user, BulkCreateTransactionRequest request) {
+        validationService.validate(request);
 
-    // format: TRX-yyyyMMdd-NNN, nomor urut reset setiap hari
-    private String generateTransactionCode() {
-        String prefix = TRANSACTION_CODE_PREFIX + LocalDate.now(clock).format(TRANSACTION_CODE_DATE_FORMAT) + "-";
+        List<BulkTransactionItem> items = request.getTransactions();
+        Map<UUID, Category> categoriesById = loadCategories(user, items);
+        List<String> transactionCodes = transactionCodeGenerator.generate(items.size());
 
-        int nextSequence = transactionRepository
-            .findTopByTransactionCodeStartingWithOrderByTransactionCodeDesc(prefix)
-            .map(last -> Integer.parseInt(last.getTransactionCode().substring(prefix.length())) + 1)
-            .orElse(1);
+        List<Transaction> transactions = IntStream.range(0, items.size())
+            .mapToObj(i -> toTransaction(user, items.get(i), categoriesById.get(items.get(i).getCategoryId()), transactionCodes.get(i)))
+            .toList();
 
-        String transactionCode;
-        do {
-            transactionCode = prefix + String.format("%03d", nextSequence++);
-        } while (transactionRepository.existsByTransactionCode(transactionCode));
-
-        return transactionCode;
+        return transactionRepository.saveAll(transactions).stream()
+            .map(transaction -> toTransactionResponse(transaction, transaction.getCategory()))
+            .toList();
     }
 
-    // delete transaction
+    // [HELPER] category aktif milik user; gagal jika ada categoryId yang tidak ditemukan
+    private Map<UUID, Category> loadCategories(User user, List<BulkTransactionItem> items) {
+        Set<UUID> categoryIds = items.stream()
+            .map(BulkTransactionItem::getCategoryId)
+            .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        Map<UUID, Category> categoriesById = categoryRepository.findAllByIdInAndUserAndIsDeletedFalse(categoryIds, user).stream()
+            .collect(Collectors.toMap(Category::getId, Function.identity()));
+
+        List<String> missingIds = categoryIds.stream()
+            .filter(id -> !categoriesById.containsKey(id))
+            .map(UUID::toString)
+            .toList();
+
+        if (!missingIds.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Category not found: " + String.join(", ", missingIds));
+        }
+        return categoriesById;
+    }
+
+    // [HELPER]
+    private Transaction toTransaction(User user, BulkTransactionItem item, Category category, String transactionCode) {
+        Transaction transaction = new Transaction();
+        transaction.setTransactionName(item.getName());
+        transaction.setTransactionCode(transactionCode);
+        transaction.setCategory(category);
+        transaction.setUser(user);
+        transaction.setAmount(item.getAmount());
+        transaction.setDescription(item.getDescription());
+        transaction.setTransactionDate(item.getDate().atStartOfDay());
+        return transaction;
+    }
+
+    // [MAIN] delete transaction
 @Transactional
 public void delete(User user, String transactionCode) {
     Transaction transaction = transactionRepository
-            .findByUserAndTransactionCode(user, transactionCode)
+            .findByUserAndTransactionCodeAndIsDeletedFalse(user, transactionCode)
             .orElseThrow(() ->
                     new ResponseStatusException(
                             HttpStatus.NOT_FOUND,
@@ -126,7 +165,7 @@ public void delete(User user, String transactionCode) {
     transaction.setDeleted(true);
 }
 
-// update transaction 
+// [MAIN] update transaction
 
 @Transactional
 public TransactionResponse update(User user, String transactionCode, UpdateTransactionRequest request) {
@@ -134,7 +173,7 @@ public TransactionResponse update(User user, String transactionCode, UpdateTrans
     validationService.validate(request);
 
     Transaction transaction = transactionRepository
-        .findByUserAndTransactionCode(user, transactionCode)
+        .findByUserAndTransactionCodeAndIsDeletedFalse(user, transactionCode)
         .orElseThrow(() ->
             new ResponseStatusException(
                 HttpStatus.NOT_FOUND,
@@ -175,17 +214,17 @@ public TransactionResponse update(User user, String transactionCode, UpdateTrans
 }
 
 
-// get single transaction 
+// [MAIN] get single transaction
 
 @Transactional (readOnly = true)
 public TransactionResponse get(User user , String transactionCode) {
 
-    Transaction transaction = transactionRepository.findByUserAndTransactionCode(user, transactionCode).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Transaction not found"));
+    Transaction transaction = transactionRepository.findByUserAndTransactionCodeAndIsDeletedFalse(user, transactionCode).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Transaction not found"));
     return toTransactionResponse(transaction, transaction.getCategory());
 }
 
 
-// get all transaction
+// [MAIN] get all transaction
 
  @Transactional (readOnly = true)
  public Page<TransactionResponse> getAll(User user, int skip, int limit, TransactionFilter filter) {
@@ -207,61 +246,111 @@ public TransactionResponse get(User user , String transactionCode) {
      Sort sort = TransactionSort.fromValue(filter.getSort()).getSort();
      Pageable pageable = PageRequest.of(skip / limit, limit, sort);
 
-     Specification<Transaction> specification = TransactionSpecification.filterBy(user, filter);
-     Page<Transaction> transactions = transactionRepository.findAll(specification, pageable);
+     String search = filter.getSearch() == null || filter.getSearch().isBlank()
+         ? null
+         : "%" + filter.getSearch().toLowerCase() + "%";
+     LocalDateTime start = filter.getDate() == null ? null : filter.getDate().atStartOfDay();
+     LocalDateTime end = filter.getDate() == null ? null : filter.getDate().plusDays(1).atStartOfDay();
+     String type = filter.getType() == null ? null : filter.getType().name();
+
+     Page<Transaction> transactions = transactionRepository.findAllActive(user, search, start, end, type, pageable);
 
     return transactions.map(transaction -> toTransactionResponse(transaction, transaction.getCategory()));
  }
 
 
-//  get state transaction
-   @Transactional (readOnly = true)
-   public TransactionStateResponse getStat(User user, LocalDateTime startDate, LocalDateTime endDate) {
-      if (!endDate.isAfter(startDate)) {
-          throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "endDate must be after startDate");
-      }
+// [MAIN] get stat transaction
 
+    @Transactional(readOnly = true)
+    public TransactionStateResponse getStat(User user, TransactionStatFilter filter) {
+        StatRange range = resolveStatRange(filter);
+        PeriodTotals current = sumTotals(user, range.currentStart(), range.currentEnd());
+        PeriodTotals last = sumTotals(user, range.lastStart(), range.currentStart());
 
-      LocalDateTime lastStartDate = startDate.toLocalDate().minusMonths(1).withDayOfMonth(1).atStartOfDay();
-      LocalDateTime lastEndDate = startDate.toLocalDate().withDayOfMonth(1).atStartOfDay();
+        return TransactionStateResponse.builder()
+            .totalBalance(toStatistic(current.balance(), last.balance()))
+            .totalIncome(toStatistic(current.income(), last.income()))
+            .totalExpense(toStatistic(current.expense(), last.expense()))
+            .totalSaving(toStatistic(current.saving(), last.saving()))
+            .build();
+    }
 
-      BigDecimal currentIncome = sumAmount(user, TransactionType.INCOME, startDate, endDate);
-      BigDecimal currentExpense = sumAmount(user, TransactionType.EXPENSE, startDate, endDate);
-      BigDecimal currentSaving = sumAmount(user, TransactionType.SAVING, startDate, endDate);
-      BigDecimal lastIncome = sumAmount(user, TransactionType.INCOME, lastStartDate, lastEndDate);
-      BigDecimal lastExpense = sumAmount(user, TransactionType.EXPENSE, lastStartDate, lastEndDate);
-      BigDecimal lastSaving = sumAmount(user, TransactionType.SAVING, lastStartDate, lastEndDate);
+    // [HELPER] periode sebelumnya selalu berakhir tepat di currentStart
+    private record StatRange(LocalDateTime lastStart, LocalDateTime currentStart, LocalDateTime currentEnd) {}
 
+    // [HELPER]
+    private record PeriodTotals(BigDecimal income, BigDecimal expense, BigDecimal saving) {
+        BigDecimal balance() {
+            return income.subtract(expense).subtract(saving);
+        }
+    }
 
-      BigDecimal currentBalance = currentIncome.subtract(currentExpense);
-      BigDecimal lastBalance = lastIncome.subtract(lastExpense);
+    // [HELPER]
+    private StatRange resolveStatRange(TransactionStatFilter filter) {
+        LocalDate today = LocalDate.now(clock);
 
-      
+        return switch (filter.getType()) {
+            case YEARLY -> {
+                LocalDateTime start = today.withDayOfYear(1).atStartOfDay();
+                yield new StatRange(start.minusYears(1), start, start.plusYears(1));
+            }
+            case MONTHLY -> {
+                LocalDateTime start = today.withDayOfMonth(1).atStartOfDay();
+                yield new StatRange(start.minusMonths(1), start, start.plusMonths(1));
+            }
+            case WEEKLY -> {
+                LocalDateTime end = today.plusDays(1).atStartOfDay();
+                LocalDateTime start = end.minusWeeks(1);
+                yield new StatRange(start.minusWeeks(1), start, end);
+            }
+            case CUSTOM -> resolveCustomRange(filter.getStartDate(), filter.getEndDate());
+        };
+    }
 
-      return TransactionStateResponse.builder()
-          .totalBalance(toStatistic(currentBalance, lastBalance))
-          .totalIncome(toStatistic(currentIncome, lastIncome))
-          .totalExpense(toStatistic(currentExpense, lastExpense))
-          .totalSaving(toStatistic(currentSaving, lastSaving))
-          .build();
-   }
+    // [HELPER]
+    private StatRange resolveCustomRange(LocalDate startDate, LocalDate endDate) {
+        if (startDate == null || endDate == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "startDate and endDate are required for CUSTOM type");
+        }
 
-   private BigDecimal sumAmount(User user, TransactionType type, LocalDateTime start, LocalDateTime end) {
-      return transactionRepository.sumAmountByTypeAndPeriod(user, type.name(), start, end);
-   }
+        if (endDate.isBefore(startDate)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "endDate must not be before startDate");
+        }
 
+        LocalDateTime start = startDate.atStartOfDay();
+        LocalDateTime end = endDate.plusDays(1).atStartOfDay();
+        long periodDays = ChronoUnit.DAYS.between(start, end);
+
+        return new StatRange(start.minusDays(periodDays), start, end);
+    }
+
+    // [HELPER]
+    private PeriodTotals sumTotals(User user, LocalDateTime start, LocalDateTime end) {
+        return new PeriodTotals(
+            sumAmount(user, TransactionType.INCOME, start, end),
+            sumAmount(user, TransactionType.EXPENSE, start, end),
+            sumAmount(user, TransactionType.SAVING, start, end)
+        );
+    }
+
+    // [HELPER]
+    private BigDecimal sumAmount(User user, TransactionType type, LocalDateTime start, LocalDateTime end) {
+        return transactionRepository.sumAmountByTypeAndPeriod(user, type.name(), start, end);
+    }
+
+   // [HELPER]
    private TransactionStateResponse.Statistic toStatistic(BigDecimal current, BigDecimal last) {
-      BigDecimal nonNegativeCurrent = current.max(BigDecimal.ZERO);
       return TransactionStateResponse.Statistic.builder()
-          .amount(nonNegativeCurrent)
-          .changePercentage(calculateChangePercentage(nonNegativeCurrent, last))
+          .amount(current)
+          .changePercentage(calculateChangePercentage(current, last))
           .build();
    }
 
+// [HELPER]
 private BigDecimal calculateChangePercentage( BigDecimal current, BigDecimal last) {
     if (last.compareTo(BigDecimal.ZERO) == 0) {
-        BigDecimal result = current.compareTo(BigDecimal.ZERO) == 0 ? BigDecimal.ZERO : ONE_HUNDRED;
-        return result.setScale(PERCENTAGE_SCALE);
+        // defisit dari 0 -> -100, surplus dari 0 -> 100
+        return ONE_HUNDRED.multiply(BigDecimal.valueOf(current.signum())).setScale(PERCENTAGE_SCALE);
     }
 
     return current.subtract(last)
@@ -270,6 +359,7 @@ private BigDecimal calculateChangePercentage( BigDecimal current, BigDecimal las
 }
 
 
+    // [HELPER]
     private TransactionResponse toTransactionResponse(Transaction transaction, Category category) {
         return TransactionResponse.builder()
             .transactionName(transaction.getTransactionName())
@@ -281,6 +371,7 @@ private BigDecimal calculateChangePercentage( BigDecimal current, BigDecimal las
             .build();
     }
 
+    // [HELPER]
     private CategoryResponse toCategoryResponse(Category category) {
         return CategoryResponse.builder()
             .id(category.getId())
@@ -290,7 +381,7 @@ private BigDecimal calculateChangePercentage( BigDecimal current, BigDecimal las
     }
 
 
-    // get statistic transation
+    // [MAIN] get statistic transation
    @Transactional (readOnly = true)
     public TransactionStatisticResponse getStatistic(User user, String periode) {
 
@@ -331,6 +422,7 @@ private BigDecimal calculateChangePercentage( BigDecimal current, BigDecimal las
             .build();
     }
 
+    // [HELPER]
     private List<TransactionPeriodItemResponse> fillMissingDates(
         List<TransactionPeriodItemResponse> dailyItems,
         LocalDate startDate,
@@ -347,6 +439,8 @@ private BigDecimal calculateChangePercentage( BigDecimal current, BigDecimal las
                 .build()))
             .toList();
     }
+
+    
 
 }
     

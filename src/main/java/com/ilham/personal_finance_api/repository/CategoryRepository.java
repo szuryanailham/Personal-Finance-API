@@ -8,13 +8,16 @@ import com.ilham.personal_finance_api.entity.User;
 
 import org.springframework.data.domain.Page;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 public interface CategoryRepository extends JpaRepository<Category, UUID> {
-
     boolean existsByNameAndType(String name, String type);
-    Page<Category> findAllByUser(User user, Pageable pageable);
+    Page<Category> findAllByUserAndIsDeletedFalse(User user, Pageable pageable);
     Optional<Category> findByIdAndUser(UUID id, User user);
+    List<Category> findAllByUserAndIsDeletedFalseOrderByTypeAscNameAsc(User user);
+    List<Category> findAllByIdInAndUserAndIsDeletedFalse(Collection<UUID> ids, User user);
 
 }

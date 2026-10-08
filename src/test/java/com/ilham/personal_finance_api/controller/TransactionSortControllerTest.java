@@ -145,6 +145,28 @@ public class TransactionSortControllerTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void testListAndGetExcludeSoftDeletedTransaction() throws Exception {
+        Transaction deleted = transactionRepository.findAll().stream()
+            .filter(transaction -> "TRX-0003".equals(transaction.getTransactionCode()))
+            .findFirst()
+            .orElseThrow();
+        deleted.setDeleted(true);
+        transactionRepository.save(deleted);
+
+        mockMvc.perform(listRequest("0", "10"))
+            .andExpect(status().isOk())
+            .andDo(result -> assertCodes(
+                List.of("TRX-0001", "TRX-0002"),
+                readList(result.getResponse().getContentAsString())
+            ));
+
+        mockMvc.perform(get("/api/transaction/TRX-0003")
+                .accept(MediaType.APPLICATION_JSON)
+                .header("Authorization", "Bearer test"))
+            .andExpect(status().isNotFound());
+    }
+
+    @Test
     void testSortTransactionInvalidValue() throws Exception {
         mockMvc.perform(listRequest("0", "10").param("sort", "foo"))
             .andExpect(status().isBadRequest())
