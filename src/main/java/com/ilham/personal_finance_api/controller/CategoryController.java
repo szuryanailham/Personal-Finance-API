@@ -1,10 +1,12 @@
 package com.ilham.personal_finance_api.controller;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -17,6 +19,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.ilham.personal_finance_api.entity.User;
 import com.ilham.personal_finance_api.dto.CategoryResponse;
+import com.ilham.personal_finance_api.dto.CategoryStatPeriod;
+import com.ilham.personal_finance_api.dto.CategoryStatisticResponse;
 import com.ilham.personal_finance_api.dto.CreateCategoryRequest;
 import com.ilham.personal_finance_api.dto.CreateCategoryResponse;
 import com.ilham.personal_finance_api.dto.PaginationResponse;
@@ -90,6 +94,24 @@ public WebResponse<String> delete(User user, @PathVariable("categoryId") UUID ca
 
     return WebResponse.<String>builder()
         .message("Category deleted successfully")
+        .build();
+}
+
+
+@GetMapping(
+    path = "/api/categories/statistic",
+    produces = MediaType.APPLICATION_JSON_VALUE
+)
+public WebResponse<CategoryStatisticResponse> getStatistic(User user,
+    @RequestParam(required = false) String period,
+    @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+    @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate
+) {
+    CategoryStatisticResponse response = categoryService.getExpenseStatistic(
+        user, CategoryStatPeriod.fromValue(period), startDate, endDate);
+    return WebResponse.<CategoryStatisticResponse>builder()
+        .data(response)
+        .message("Expense statistics retrieved successfully")
         .build();
 }
 

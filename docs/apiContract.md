@@ -525,6 +525,94 @@ Required
 
 ---
 
+### Get Category Expense Statistic
+
+Total expense per category over a date range, for a pie chart. Only categories of type `EXPENSE` and active transactions (`is_deleted = false`) belonging to the logged-in user are counted. Soft-deleted categories still appear if they have active transactions in the range.
+
+**Endpoint**
+
+```http
+GET /api/categories/statistic?period=CUSTOM&startDate=2026-01-01&endDate=2026-06-30
+```
+
+**Authentication**
+
+```text
+Required
+```
+
+**Query Parameter**
+
+| Parameter   | Type                | Required          | Default   | Description |
+| ----------- | ------------------- | ----------------- | --------- | ----------- |
+| `period`    | String              | No                | `MONTHLY` | `YEARLY`, `MONTHLY`, `WEEKLY`, `TODAY`, or `CUSTOM` (case-insensitive) |
+| `startDate` | Date (`YYYY-MM-DD`) | Only for `CUSTOM` | -         | Start of range (inclusive) |
+| `endDate`   | Date (`YYYY-MM-DD`) | Only for `CUSTOM` | -         | End of range (inclusive, the whole day is counted) |
+
+| `period`  | Range (inclusive) |
+| --------- | ----------------- |
+| `YEARLY`  | Jan 1 – Dec 31 of the current year |
+| `MONTHLY` | 1st – last day of the current month |
+| `WEEKLY`  | Last 7 days including today (today − 6 days – today) |
+| `TODAY`   | Today only |
+| `CUSTOM`  | `startDate` – `endDate` |
+
+`startDate` and `endDate` are ignored unless `period=CUSTOM`. "Today" follows the business time zone (`app.timezone`, default `Asia/Jakarta`).
+
+**Success Response**
+
+**HTTP 200 OK**
+
+```json
+{
+  "data": {
+    "period": {
+      "startDate": "2026-01-01",
+      "endDate": "2026-06-30"
+    },
+    "totalExpense": 9250000,
+    "categories": [
+      { "categoryId": "c1a2...", "categoryName": "Food",      "totalAmount": 2750000, "percentage": 29.73, "transactionCount": 42 },
+      { "categoryId": "c3b4...", "categoryName": "Transport", "totalAmount": 2000000, "percentage": 21.62, "transactionCount": 25 },
+      { "categoryId": "c5d6...", "categoryName": "Shopping",  "totalAmount": 1870000, "percentage": 20.22, "transactionCount": 12 },
+      { "categoryId": "c7e8...", "categoryName": "Bills",     "totalAmount": 1730000, "percentage": 18.70, "transactionCount": 8 },
+      { "categoryId": "c9f0...", "categoryName": "Other",     "totalAmount": 900000,  "percentage": 9.73,  "transactionCount": 15 }
+    ]
+  },
+  "message": "Expense statistics retrieved successfully",
+  "errors": null,
+  "paging": null
+}
+```
+
+- `categories` is sorted by `totalAmount` descending, then `categoryName` ascending; categories with no expense in the range are not included.
+- `percentage` = `totalAmount / totalExpense × 100`, rounded to 2 decimals (HALF_UP). Because of rounding, the sum can be off from 100 by ±0.01.
+- With no transactions: `totalExpense` = `0` and `categories` = `[]`.
+
+**Error Response**
+
+**HTTP 400 Bad Request**
+
+| Condition | `errors` |
+| --------- | -------- |
+| Invalid `period` value | `Invalid period: DAILY` |
+| `period=CUSTOM` without both `startDate` and `endDate` | `startDate and endDate are required for CUSTOM period` |
+| `startDate` after `endDate` | `startDate must be before or equal to endDate` |
+| Invalid date format | `Parameter 'startDate' has invalid value: 2026-13-01` |
+
+```json
+{
+  "data": null,
+  "message": null,
+  "errors": "startDate must be before or equal to endDate",
+  "paging": null
+}
+```
+
+**HTTP 401 Unauthorized** — token missing or invalid
+
+---
+
 ## 3. Transaction Management
 
 ### Create Transaction
@@ -680,11 +768,27 @@ Required
 | `skip`    | Integer | Yes      | Page number (0-based) — despite the name, this is **not** a row offset |
 | `limit`   | Integer | Yes      | Page size                                                             |
 | `search`  | String  | No       | Case-insensitive substring match on `transactionName` **or** `description` |
-| `date`    | Date (`YYYY-MM-DD`) | No | Only transactions on that day (00:00:00–23:59:59)             |
+| `categoryId` | UUID | No      | Only transactions in this category. A category the user doesn't own just returns an empty list (no `404`) |
 | `type`    | String  | No       | Category type: `INCOME`, `EXPENSE`, or `SAVING` (case-sensitive)       |
+| `period`  | String  | No       | Date range preset, see table below. Case-insensitive. Default: `ALL`  |
+| `startDate` | Date (`YYYY-MM-DD`) | Only for `period=MANUAL` | First day of the range (inclusive) |
+| `endDate` | Date (`YYYY-MM-DD`) | Only for `period=MANUAL` | Last day of the range (inclusive). Must not be before `startDate` |
+| `date`    | Date (`YYYY-MM-DD`) | No | Only transactions on that day (00:00:00–23:59:59). **Overrides** `period`, `startDate`, and `endDate` when present |
 | `sort`    | String  | No       | Sort order, see table below. Default: `date` (newest first)           |
 
-Filters are combined with AND.
+Filters are combined with AND, so `categoryId` together with a `type` that doesn't match that category returns an empty list.
+
+**Period values** ("today" is in the business timezone, `app.timezone`, default `Asia/Jakarta`)
+
+| `period`        | Range                                                          |
+| --------------- | -------------------------------------------------------------- |
+| `ALL` (default) | No date restriction                                            |
+| `TODAY`         | Today only                                                     |
+| `LAST_7_DAYS`   | Today and the 6 days before it                                 |
+| `LAST_14_DAYS`  | Today and the 13 days before it                                |
+| `MANUAL`        | `startDate` through `endDate`, both inclusive (both required)  |
+
+`startDate` and `endDate` are ignored unless `period=MANUAL`. An empty `period` is treated as `ALL`.
 
 **Sort values**
 
@@ -707,6 +811,8 @@ Values are case-sensitive. Ties are always broken by `transactionCode` ascending
 
 ```http
 GET /api/transaction?skip=0&limit=10&search=salary&type=INCOME&sort=-amount
+GET /api/transaction?skip=0&limit=10&categoryId=d290f1ee-6c54-4b01-90e6-d701748f0851&period=LAST_7_DAYS
+GET /api/transaction?skip=0&limit=10&period=MANUAL&startDate=2026-08-01&endDate=2026-08-31
 ```
 
 **Success Response**
@@ -750,7 +856,10 @@ GET /api/transaction?skip=0&limit=10&search=salary&type=INCOME&sort=-amount
 | `skip < 0`                     | `"Skip must be greater than or equal to 0"`           |
 | `limit <= 0`                   | `"Limit must be greater than 0"`                      |
 | Unknown `sort` value           | `"Invalid sort value: <value>"`                       |
-| Invalid `type` or `date` value | `"Parameter '<name>' has invalid value: <value>"`     |
+| Unknown `period` value         | `"Invalid period: <value>"`                           |
+| `period=MANUAL` without both `startDate` and `endDate` | `"startDate and endDate are required for MANUAL period"` |
+| `endDate` before `startDate`   | `"endDate must not be before startDate"`              |
+| Invalid `type`, `categoryId`, `date`, `startDate`, or `endDate` value | `"Parameter '<name>' has invalid value: <value>"` |
 
 ---
 
@@ -861,6 +970,118 @@ Required
 **Error Response**
 
 **HTTP 404 Not Found**
+
+---
+
+### Bulk Delete Transactions
+
+Soft-deletes many transactions at once (`isDeleted = true`). Partial success: codes that are not found, belong to another user, or are already deleted are skipped and returned in `skippedCodes` — the rest are still deleted. Duplicate codes are counted once.
+
+**Endpoint**
+
+```http
+DELETE /api/transaction/bulk
+```
+
+**Authentication**
+
+```text
+Required
+```
+
+**Request Body**
+
+```json
+{
+  "transactionCodes": ["TRX-001", "TRX-002", "TRX-404"]
+}
+```
+
+| Field              | Type     | Rules                          |
+| ------------------ | -------- | ------------------------------ |
+| `transactionCodes` | String[] | Required, 1–500 items, no blank |
+
+**Success Response**
+
+**HTTP 200 OK**
+
+```json
+{
+  "data": {
+    "deletedCount": 2,
+    "deletedCodes": ["TRX-001", "TRX-002"],
+    "skippedCodes": ["TRX-404"]
+  },
+  "message": "2 transactions deleted successfully",
+  "errors": null,
+  "paging": null
+}
+```
+
+**Error Response**
+
+**HTTP 400 Bad Request** — empty list, more than 500 items, or a blank code
+
+**HTTP 401 Unauthorized**
+
+---
+
+### Bulk Update Transactions (Partial)
+
+Applies the same field values to many transactions at once. Only non-null fields are changed; at least one field must be provided. Duplicate codes are de-duplicated. All-or-nothing: if any code is not found / deleted / owned by another user, or `categoryId` is not an active category of the user, nothing is updated.
+
+**Endpoint**
+
+```http
+PATCH /api/transaction/bulk
+```
+
+**Authentication**
+
+```text
+Required
+```
+
+**Request Body**
+
+```json
+{
+  "transactionCodes": ["TRX-20261001-001", "TRX-20261001-002"],
+  "transactionName": "Gaji",
+  "categoryId": "3f1c...",
+  "date": "2026-10-01",
+  "description": "Gaji Oktober"
+}
+```
+
+| Field              | Type                | Rules                                  |
+| ------------------ | ------------------- | -------------------------------------- |
+| `transactionCodes` | String[]            | Required, 1–500 items, each not blank  |
+| `transactionName`  | String              | Optional, max 100 chars                |
+| `categoryId`       | UUID                | Optional, active category of user      |
+| `date`             | Date (`YYYY-MM-DD`) | Optional                               |
+| `description`      | String              | Optional                               |
+
+**Success Response**
+
+**HTTP 200 OK**
+
+```json
+{
+  "message": "2 transactions updated successfully",
+  "updatedCount": 2,
+  "errors": null,
+  "paging": null
+}
+```
+
+**Error Response**
+
+**HTTP 400 Bad Request** — empty list, more than 500 codes, blank code, name > 100 chars, or no field to update
+
+**HTTP 401 Unauthorized**
+
+**HTTP 404 Not Found** — `Transaction not found: TRX-404, ...` or `Category not found: <id>`
 
 ---
 
@@ -1117,7 +1338,7 @@ The following are referenced in older drafts of this contract but do not exist i
 
 - `/api/incomes`, `/api/expenses` (income/expense are just `Category.type` values on the unified transaction/category model, not separate resources)
 - `/api/financial-summary`
-- Transaction list filters `keyword`, `categoryId`, `startDate`, `endDate` (use `search`, `type`, and single-day `date` instead)
+- Transaction list filter `keyword` (use `search` instead)
 - Custom date ranges on `GET /api/transaction/statistic` (only `Monthly` / `Weekly` presets)
 - `204 No Content` responses (every endpoint returns `200 OK` with a JSON body, including deletes)
 

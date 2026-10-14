@@ -2,6 +2,7 @@ package com.ilham.personal_finance_api.controller;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -16,8 +17,13 @@ import org.springframework.web.bind.annotation.RestController;
 import com.ilham.personal_finance_api.entity.User;
 import com.ilham.personal_finance_api.dto.BulkCreateTransactionRequest;
 import com.ilham.personal_finance_api.dto.CreateTransactionRequest;
+import com.ilham.personal_finance_api.dto.BulkDeleteTransactionRequest;
+import com.ilham.personal_finance_api.dto.BulkDeleteTransactionResponse;
+import com.ilham.personal_finance_api.dto.BulkUpdateTransactionRequest;
+import com.ilham.personal_finance_api.dto.BulkUpdateTransactionResponse;
 import com.ilham.personal_finance_api.dto.CreateTransactionResponse;
 import com.ilham.personal_finance_api.dto.PaginationResponse;
+import com.ilham.personal_finance_api.dto.TransactionDatePeriod;
 import com.ilham.personal_finance_api.dto.TransactionExportFilter;
 import com.ilham.personal_finance_api.dto.TransactionExportPeriod;
 import com.ilham.personal_finance_api.dto.TransactionFilter;
@@ -91,6 +97,32 @@ public class TransactionController {
     }
 
 
+    @DeleteMapping(
+        path = "/api/transaction/bulk",
+        produces = MediaType.APPLICATION_JSON_VALUE,
+        consumes = MediaType.APPLICATION_JSON_VALUE
+    )
+    public WebResponse<BulkDeleteTransactionResponse> bulkDelete(User user, @Valid @RequestBody BulkDeleteTransactionRequest request) {
+        BulkDeleteTransactionResponse response = transactionService.bulkDelete(user, request);
+        return WebResponse.<BulkDeleteTransactionResponse>builder()
+            .data(response)
+            .message(response.getDeletedCount() + " transactions deleted successfully")
+            .build();
+    }
+
+    @PatchMapping(
+        path = "/api/transaction/bulk",
+        produces = MediaType.APPLICATION_JSON_VALUE,
+        consumes = MediaType.APPLICATION_JSON_VALUE
+    )
+    public BulkUpdateTransactionResponse bulkUpdate(User user, @Valid @RequestBody BulkUpdateTransactionRequest request) {
+        int updatedCount = transactionService.bulkUpdate(user, request);
+        return BulkUpdateTransactionResponse.builder()
+            .message(updatedCount + " transactions updated successfully")
+            .updatedCount(updatedCount)
+            .build();
+    }
+
     @DeleteMapping  (
         path = "/api/transaction/{transactionCode}",
         produces = MediaType.APPLICATION_JSON_VALUE
@@ -122,13 +154,21 @@ public WebResponse<List<TransactionResponse>> getAll(
         @RequestParam int limit,
         @RequestParam(required = false) String search,
         @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+        @RequestParam(required = false) UUID categoryId,
         @RequestParam(required = false) TransactionType type,
+        @RequestParam(required = false) String period,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
         @RequestParam(required = false) String sort
 ) {
     TransactionFilter filter = TransactionFilter.builder()
             .search(search)
             .date(date)
+            .categoryId(categoryId)
             .type(type)
+            .period(TransactionDatePeriod.fromValue(period))
+            .startDate(startDate)
+            .endDate(endDate)
             .sort(sort)
             .build();
 

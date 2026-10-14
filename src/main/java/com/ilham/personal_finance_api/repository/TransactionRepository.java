@@ -3,16 +3,20 @@ package com.ilham.personal_finance_api.repository;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import com.ilham.personal_finance_api.dto.CategoryStatisticResponse.CategoryStatisticItemResponse;
 import com.ilham.personal_finance_api.dto.TransactionStatisticResponse.TransactionPeriodItemResponse;
 import com.ilham.personal_finance_api.entity.Transaction;
 import com.ilham.personal_finance_api.entity.User;
@@ -21,6 +25,20 @@ public interface TransactionRepository extends JpaRepository<Transaction, String
     boolean existsByTransactionCode(String transactionCode);
     Optional<Transaction> findTopByTransactionCodeStartingWithOrderByTransactionCodeDesc(String prefix);
     Optional<Transaction> findByUserAndTransactionCodeAndIsDeletedFalse(User user, String transactionCode);
+    List<Transaction> findAllByUserAndTransactionCodeIn(User user, Collection<String> transactionCodes);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+        UPDATE Transaction t
+        SET t.isDeleted = true
+        WHERE t.user = :user
+        AND t.transactionCode IN :transactionCodes
+        AND t.isDeleted = false
+        """)
+    int softDeleteAllByUserAndTransactionCodeIn(
+        @Param("user") User user,
+        @Param("transactionCodes") Collection<String> transactionCodes
+    );
 
     @Query("""
         SELECT t
@@ -33,6 +51,7 @@ public interface TransactionRepository extends JpaRepository<Transaction, String
         AND (CAST(:start AS LocalDateTime) IS NULL OR t.transactionDate >= :start)
         AND (CAST(:end AS LocalDateTime) IS NULL OR t.transactionDate < :end)
         AND (:type IS NULL OR t.category.type = :type)
+        AND (:categoryId IS NULL OR t.category.id = :categoryId)
         """)
     Page<Transaction> findAllActive(
         @Param("user") User user,
@@ -40,6 +59,7 @@ public interface TransactionRepository extends JpaRepository<Transaction, String
         @Param("start") LocalDateTime start,
         @Param("end") LocalDateTime end,
         @Param("type") String type,
+        @Param("categoryId") UUID categoryId,
         Pageable pageable
     );
 
@@ -93,6 +113,30 @@ public interface TransactionRepository extends JpaRepository<Transaction, String
         """)
     List<TransactionPeriodItemResponse> getSumDailyIncomeAndExpenseByPeriod(
         @Param("user") User user,
+        @Param("start") LocalDateTime start,
+        @Param("end") LocalDateTime end
+    );
+
+    @Query("""
+        SELECT new com.ilham.personal_finance_api.dto.CategoryStatisticResponse$CategoryStatisticItemResponse(
+            c.id,
+            c.name,
+            COALESCE(SUM(t.amount), 0),
+            COUNT(t)
+        )
+        FROM Transaction t
+        JOIN t.category c
+        WHERE t.user = :user
+        AND t.isDeleted = false
+        AND c.type = :type
+        AND t.transactionDate >= :start
+        AND t.transactionDate < :end
+        GROUP BY c.id, c.name
+        ORDER BY SUM(t.amount) DESC, c.name ASC
+        """)
+    List<CategoryStatisticItemResponse> getSumAmountPerCategoryByTypeAndPeriod(
+        @Param("user") User user,
+        @Param("type") String type,
         @Param("start") LocalDateTime start,
         @Param("end") LocalDateTime end
     );

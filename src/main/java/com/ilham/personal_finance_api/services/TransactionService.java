@@ -27,9 +27,13 @@ import org.springframework.web.server.ResponseStatusException;
 
 import com.ilham.personal_finance_api.dto.BulkCreateTransactionRequest;
 import com.ilham.personal_finance_api.dto.BulkTransactionItem;
+import com.ilham.personal_finance_api.dto.BulkDeleteTransactionRequest;
+import com.ilham.personal_finance_api.dto.BulkDeleteTransactionResponse;
+import com.ilham.personal_finance_api.dto.BulkUpdateTransactionRequest;
 import com.ilham.personal_finance_api.dto.CategoryResponse;
 import com.ilham.personal_finance_api.dto.CreateTransactionRequest;
 import com.ilham.personal_finance_api.dto.CreateTransactionResponse;
+import com.ilham.personal_finance_api.dto.TransactionDatePeriod;
 import com.ilham.personal_finance_api.dto.TransactionFilter;
 import com.ilham.personal_finance_api.dto.TransactionResponse;
 import com.ilham.personal_finance_api.dto.TransactionSort;
@@ -105,7 +109,10 @@ public class TransactionService {
         validationService.validate(request);
 
         List<BulkTransactionItem> items = request.getTransactions();
-        Map<UUID, Category> categoriesById = loadCategories(user, items);
+        Set<UUID> categoryIds = items.stream()
+            .map(BulkTransactionItem::getCategoryId)
+            .collect(Collectors.toCollection(LinkedHashSet::new));
+        Map<UUID, Category> categoriesById = loadCategories(user, categoryIds);
         List<String> transactionCodes = transactionCodeGenerator.generate(items.size());
 
         List<Transaction> transactions = IntStream.range(0, items.size())
@@ -118,10 +125,10 @@ public class TransactionService {
     }
 
     // [HELPER] category aktif milik user; gagal jika ada categoryId yang tidak ditemukan
-    private Map<UUID, Category> loadCategories(User user, List<BulkTransactionItem> items) {
-        Set<UUID> categoryIds = items.stream()
-            .map(BulkTransactionItem::getCategoryId)
-            .collect(Collectors.toCollection(LinkedHashSet::new));
+    private Map<UUID, Category> loadCategories(User user, Set<UUID> categoryIds) {
+        if (categoryIds.isEmpty()) {
+            return Map.of();
+        }
 
         Map<UUID, Category> categoriesById = categoryRepository.findAllByIdInAndUserAndIsDeletedFalse(categoryIds, user).stream()
             .collect(Collectors.toMap(Category::getId, Function.identity()));
@@ -164,6 +171,88 @@ public void delete(User user, String transactionCode) {
 
     transaction.setDeleted(true);
 }
+
+    // [MAIN] bulk delete transaction (soft delete)
+    // partial: code yang tidak ditemukan / sudah terhapus di-skip, sisanya tetap dihapus.
+    @Transactional
+    public BulkDeleteTransactionResponse bulkDelete(User user, BulkDeleteTransactionRequest request) {
+        validationService.validate(request);
+
+        Set<String> requestedCodes = new LinkedHashSet<>(request.getTransactionCodes());
+
+        Set<String> deletableCodes = transactionRepository.findAllByUserAndTransactionCodeIn(user, requestedCodes).stream()
+            .filter(transaction -> !transaction.isDeleted())
+            .map(Transaction::getTransactionCode)
+            .collect(Collectors.toSet());
+
+        if (!deletableCodes.isEmpty()) {
+            transactionRepository.softDeleteAllByUserAndTransactionCodeIn(user, deletableCodes);
+        }
+
+        Map<Boolean, List<String>> partitioned = requestedCodes.stream()
+            .collect(Collectors.partitioningBy(deletableCodes::contains));
+
+        return BulkDeleteTransactionResponse.builder()
+            .deletedCount(partitioned.get(true).size())
+            .deletedCodes(partitioned.get(true))
+            .skippedCodes(partitioned.get(false))
+            .build();
+    }
+
+
+    // [MAIN] bulk update transaction (partial update)
+    // field yang sama diterapkan ke semua code; code duplikat di-dedupe.
+    // all-or-nothing: jika ada code / category yang tidak valid, tidak ada transaksi yang diubah.
+    @Transactional
+    public int bulkUpdate(User user, BulkUpdateTransactionRequest request) {
+        validationService.validate(request);
+
+        if (!request.hasAnyField()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "At least one field to update must be provided");
+        }
+
+        Set<String> codes = new LinkedHashSet<>(request.getTransactionCodes());
+        Map<String, Transaction> transactionsByCode = loadActiveTransactions(user, codes);
+
+        Category category = request.getCategoryId() == null
+            ? null
+            : loadCategories(user, Set.of(request.getCategoryId())).get(request.getCategoryId());
+
+        transactionsByCode.values().forEach(transaction -> applyUpdate(transaction, request, category));
+        return transactionsByCode.size();
+    }
+
+    // [HELPER] 
+    private Map<String, Transaction> loadActiveTransactions(User user, Set<String> codes) {
+        Map<String, Transaction> transactionsByCode = transactionRepository.findAllByUserAndTransactionCodeIn(user, codes).stream()
+            .filter(transaction -> !transaction.isDeleted())
+            .collect(Collectors.toMap(Transaction::getTransactionCode, Function.identity()));
+
+        List<String> missingCodes = codes.stream()
+            .filter(code -> !transactionsByCode.containsKey(code))
+            .toList();
+
+        if (!missingCodes.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Transaction not found: " + String.join(", ", missingCodes));
+        }
+        return transactionsByCode;
+    }
+
+    // [HELPER] hanya field yang dikirim (non-null) yang diubah
+    private void applyUpdate(Transaction transaction, BulkUpdateTransactionRequest request, Category category) {
+        if (request.getTransactionName() != null) {
+            transaction.setTransactionName(request.getTransactionName());
+        }
+        if (request.getDescription() != null) {
+            transaction.setDescription(request.getDescription());
+        }
+        if (category != null) {
+            transaction.setCategory(category);
+        }
+        if (request.getDate() != null) {
+            transaction.setTransactionDate(request.getDate().atStartOfDay());
+        }
+    }
 
 // [MAIN] update transaction
 
@@ -249,14 +338,53 @@ public TransactionResponse get(User user , String transactionCode) {
      String search = filter.getSearch() == null || filter.getSearch().isBlank()
          ? null
          : "%" + filter.getSearch().toLowerCase() + "%";
-     LocalDateTime start = filter.getDate() == null ? null : filter.getDate().atStartOfDay();
-     LocalDateTime end = filter.getDate() == null ? null : filter.getDate().plusDays(1).atStartOfDay();
+     DateRange range = resolveDateRange(filter);
      String type = filter.getType() == null ? null : filter.getType().name();
 
-     Page<Transaction> transactions = transactionRepository.findAllActive(user, search, start, end, type, pageable);
+     Page<Transaction> transactions = transactionRepository.findAllActive(
+         user, search, range.start(), range.end(), type, filter.getCategoryId(), pageable
+     );
 
     return transactions.map(transaction -> toTransactionResponse(transaction, transaction.getCategory()));
  }
+
+    // [HELPER] start inklusif, end eksklusif; null berarti tanpa batas
+    private record DateRange(LocalDateTime start, LocalDateTime end) {}
+
+    private static final DateRange ALL_DATES = new DateRange(null, null);
+
+    // [HELPER] date (satu hari) diprioritaskan di atas period
+    // [HELPER] LAST_7_DAYS / LAST_14_DAYS sudah termasuk hari ini
+    private DateRange resolveDateRange(TransactionFilter filter) {
+        if (filter.getDate() != null) {
+            return new DateRange(filter.getDate().atStartOfDay(), filter.getDate().plusDays(1).atStartOfDay());
+        }
+
+        LocalDate today = LocalDate.now(clock);
+        LocalDateTime tomorrow = today.plusDays(1).atStartOfDay();
+        TransactionDatePeriod period = filter.getPeriod() == null ? TransactionDatePeriod.ALL : filter.getPeriod();
+
+        return switch (period) {
+            case ALL -> ALL_DATES;
+            case TODAY -> new DateRange(today.atStartOfDay(), tomorrow);
+            case LAST_7_DAYS -> new DateRange(today.minusDays(6).atStartOfDay(), tomorrow);
+            case LAST_14_DAYS -> new DateRange(today.minusDays(13).atStartOfDay(), tomorrow);
+            case MANUAL -> resolveManualDateRange(filter.getStartDate(), filter.getEndDate());
+        };
+    }
+
+    // [HELPER] endDate inklusif, jadi batas akhir query adalah awal hari berikutnya
+    private DateRange resolveManualDateRange(LocalDate startDate, LocalDate endDate) {
+        if (startDate == null || endDate == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "startDate and endDate are required for MANUAL period");
+        }
+
+        if (endDate.isBefore(startDate)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "endDate must not be before startDate");
+        }
+
+        return new DateRange(startDate.atStartOfDay(), endDate.plusDays(1).atStartOfDay());
+    }
 
 
 // [MAIN] get stat transaction

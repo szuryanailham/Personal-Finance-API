@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -57,8 +58,11 @@ private MockMvc mockMvc;
 @Autowired 
 private UserRepository userRepository;
 
-@Autowired 
+@Autowired
 private CategoryRepository categoryRepository ;
+
+@Autowired
+private Clock clock;
 
 
 
@@ -469,6 +473,173 @@ void testTransactionByTypeTransaction() throws Exception {
     assertEquals("INCOME", transaction.getCategory().getType());
 }
     });
+}
+
+private Transaction saveTransaction(Category transactionCategory, LocalDate date) {
+    Transaction newTransaction = new Transaction();
+    newTransaction.setTransactionName("filter test");
+    newTransaction.setTransactionCode("TRX-" + UUID.randomUUID());
+    newTransaction.setCategory(transactionCategory);
+    newTransaction.setUser(user);
+    newTransaction.setAmount(new BigDecimal("10000"));
+    newTransaction.setDescription("this is for filter test");
+    newTransaction.setTransactionDate(date.atStartOfDay());
+    return transactionRepository.save(newTransaction);
+}
+
+private WebResponse<List<TransactionResponse>> getTransactions(String... params) throws Exception {
+    var request = get("/api/transaction")
+        .param("skip", "0")
+        .param("limit", "50")
+        .accept(MediaType.APPLICATION_JSON)
+        .header("Authorization", "Bearer test");
+
+    for (int i = 0; i < params.length; i += 2) {
+        request.param(params[i], params[i + 1]);
+    }
+
+    String content = mockMvc.perform(request)
+        .andExpect(status().isOk())
+        .andReturn().getResponse().getContentAsString();
+
+    return objectMapper.readValue(content, new TypeReference<WebResponse<List<TransactionResponse>>>() {});
+}
+
+@Test
+void testTransactionByCategoryId() throws Exception {
+    Category otherCategory = new Category();
+    otherCategory.setName("other");
+    otherCategory.setUser(user);
+    otherCategory.setType(TransactionType.EXPENSE.name());
+    categoryRepository.save(otherCategory);
+
+    saveTransaction(otherCategory, LocalDate.of(2026, 8, 31));
+    saveTransaction(otherCategory, LocalDate.of(2026, 8, 30));
+
+    WebResponse<List<TransactionResponse>> response =
+        getTransactions("categoryId", otherCategory.getId().toString());
+
+    assertEquals(2, response.getData().size());
+    for (TransactionResponse item : response.getData()) {
+        assertEquals(otherCategory.getId(), item.getCategory().getId());
+    }
+}
+
+@Test
+void testTransactionByCategoryIdAndType() throws Exception {
+    WebResponse<List<TransactionResponse>> response =
+        getTransactions("categoryId", category.getId().toString(), "type", "EXPENSE");
+
+    assertEquals(0, response.getData().size());
+}
+
+@Test
+void testTransactionByPeriodToday() throws Exception {
+    LocalDate today = LocalDate.now(clock);
+    Transaction todayTransaction = saveTransaction(category, today);
+    saveTransaction(category, today.minusDays(1));
+
+    WebResponse<List<TransactionResponse>> response = getTransactions("period", "today");
+
+    assertEquals(1, response.getData().size());
+    assertEquals(todayTransaction.getTransactionCode(), response.getData().get(0).getTransactionCode());
+}
+
+@Test
+void testTransactionByPeriodLast7Days() throws Exception {
+    LocalDate today = LocalDate.now(clock);
+    saveTransaction(category, today);
+    saveTransaction(category, today.minusDays(6));
+    saveTransaction(category, today.minusDays(7));
+
+    WebResponse<List<TransactionResponse>> response = getTransactions("period", "LAST_7_DAYS");
+
+    assertEquals(2, response.getData().size());
+}
+
+@Test
+void testTransactionByPeriodLast14Days() throws Exception {
+    LocalDate today = LocalDate.now(clock);
+    saveTransaction(category, today);
+    saveTransaction(category, today.minusDays(13));
+    saveTransaction(category, today.minusDays(14));
+
+    WebResponse<List<TransactionResponse>> response = getTransactions("period", "LAST_14_DAYS");
+
+    assertEquals(2, response.getData().size());
+}
+
+@Test
+void testTransactionByPeriodAllIsDefault() throws Exception {
+    saveTransaction(category, LocalDate.of(2020, 1, 1));
+
+    WebResponse<List<TransactionResponse>> response = getTransactions();
+
+    assertEquals(2, response.getData().size());
+}
+
+@Test
+void testTransactionByManualPeriodRange() throws Exception {
+    saveTransaction(category, LocalDate.of(2026, 8, 1));
+    saveTransaction(category, LocalDate.of(2026, 8, 15));
+    saveTransaction(category, LocalDate.of(2026, 9, 1));
+
+    WebResponse<List<TransactionResponse>> response =
+        getTransactions("period", "MANUAL", "startDate", "2026-08-01", "endDate", "2026-08-31");
+
+    assertEquals(3, response.getData().size());
+}
+
+@Test
+void testTransactionBySingleDateOverridesPeriod() throws Exception {
+    LocalDate today = LocalDate.now(clock);
+    saveTransaction(category, today);
+    Transaction pastTransaction = saveTransaction(category, LocalDate.of(2020, 1, 1));
+
+    WebResponse<List<TransactionResponse>> response =
+        getTransactions("date", "2020-01-01", "period", "TODAY");
+
+    assertEquals(1, response.getData().size());
+    assertEquals(pastTransaction.getTransactionCode(), response.getData().get(0).getTransactionCode());
+}
+
+@Test
+void testTransactionManualPeriodWithoutDatesBadRequest() throws Exception {
+    mockMvc.perform(
+        get("/api/transaction")
+            .param("skip", "0")
+            .param("limit", "10")
+            .param("period", "MANUAL")
+            .param("startDate", "2026-08-01")
+            .accept(MediaType.APPLICATION_JSON)
+            .header("Authorization", "Bearer test")
+    ).andExpect(status().isBadRequest());
+}
+
+@Test
+void testTransactionManualPeriodEndBeforeStartBadRequest() throws Exception {
+    mockMvc.perform(
+        get("/api/transaction")
+            .param("skip", "0")
+            .param("limit", "10")
+            .param("period", "MANUAL")
+            .param("startDate", "2026-08-31")
+            .param("endDate", "2026-08-01")
+            .accept(MediaType.APPLICATION_JSON)
+            .header("Authorization", "Bearer test")
+    ).andExpect(status().isBadRequest());
+}
+
+@Test
+void testTransactionInvalidPeriodBadRequest() throws Exception {
+    mockMvc.perform(
+        get("/api/transaction")
+            .param("skip", "0")
+            .param("limit", "10")
+            .param("period", "YESTERDAY")
+            .accept(MediaType.APPLICATION_JSON)
+            .header("Authorization", "Bearer test")
+    ).andExpect(status().isBadRequest());
 }
 
 

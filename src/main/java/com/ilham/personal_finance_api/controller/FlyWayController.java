@@ -16,7 +16,7 @@ import lombok.RequiredArgsConstructor;
 
 @RestController
 @RequestMapping("/api/flyway")
-@RequiredArgsConstructor
+@RequiredArgsConstructor 
 public class FlyWayController {
 
     private final Flyway flyway;
