@@ -1,5 +1,6 @@
 package com.ilham.personal_finance_api.controller;
 
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
@@ -13,6 +14,8 @@ import org.springframework.web.multipart.support.MissingServletRequestPartExcept
 import org.springframework.web.server.ResponseStatusException;
 
 import com.ilham.personal_finance_api.exception.DataAlreadyExistedException;
+import com.ilham.personal_finance_api.exception.InvalidOtpException;
+import com.ilham.personal_finance_api.exception.TooManyRequestsException;
 import com.ilham.personal_finance_api.dto.WebResponse;
 
 @RestControllerAdvice
@@ -20,10 +23,8 @@ public class ErrorController {
 
     @ExceptionHandler(ResponseStatusException.class)
     public ResponseEntity<WebResponse<Object>> handleResponseStatusException(ResponseStatusException ex) {
-        WebResponse<Object> body = WebResponse.builder()
-                .data(null)
-                .errors(ex.getReason())
-                .build();
+        WebResponse<Object> body = new WebResponse<>();
+        body.setErrors(ex.getReason());
 
         HttpStatusCode status = ex.getStatusCode();
         return new ResponseEntity<>(body, status);
@@ -31,12 +32,26 @@ public class ErrorController {
 
     @ExceptionHandler(DataAlreadyExistedException.class)
     public ResponseEntity<WebResponse<Object>> handleEmailAlreadyExists(DataAlreadyExistedException ex) {
-        WebResponse<Object> body = WebResponse.builder()
-                .data(null)
-                .errors(ex.getMessage())
-                .build();
+        WebResponse<Object> body = new WebResponse<>();
+        body.setErrors(ex.getMessage());
 
         return new ResponseEntity<>(body, HttpStatus.CONFLICT);
+    }
+
+    @ExceptionHandler(TooManyRequestsException.class)
+    public ResponseEntity<WebResponse<Object>> handleTooManyRequests(TooManyRequestsException ex) {
+        WebResponse<Object> body = new WebResponse<>();
+        body.setErrors(ex.getMessage());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.getRetryAfterSeconds()))
+                .body(body);
+    }
+
+    @ExceptionHandler(InvalidOtpException.class)
+    public ResponseEntity<WebResponse<Object>> handleInvalidOtp(InvalidOtpException ex) {
+        WebResponse<Object> body = new WebResponse<>();
+        body.setErrors(ex.getMessage());
+        return ResponseEntity.badRequest().body(body);
     }
 
 
@@ -48,8 +63,8 @@ public class ErrorController {
                 .getDefaultMessage();
 
 
-        WebResponse<Object> response =
-                new WebResponse<>(null, null, error, null);
+        WebResponse<Object> response = new WebResponse<>();
+        response.setErrors(error);
 
                  return ResponseEntity
                 .badRequest()
@@ -60,8 +75,8 @@ public class ErrorController {
     public ResponseEntity<WebResponse<Object>> handleTypeMismatchException(MethodArgumentTypeMismatchException e) {
         String error = "Parameter '" + e.getName() + "' has invalid value: " + e.getValue();
 
-        WebResponse<Object> response =
-                new WebResponse<>(null, null, error, null);
+        WebResponse<Object> response = new WebResponse<>();
+        response.setErrors(error);
 
         return ResponseEntity
                 .badRequest()
@@ -70,13 +85,15 @@ public class ErrorController {
 
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public ResponseEntity<WebResponse<Object>> handleMaxUploadSize(MaxUploadSizeExceededException e) {
-        WebResponse<Object> response = new WebResponse<>(null, null, "File size exceeds the limit", null);
+        WebResponse<Object> response = new WebResponse<>();
+        response.setErrors("File size exceeds the limit");
         return ResponseEntity.status(HttpStatus.CONTENT_TOO_LARGE).body(response);
     }
 
     @ExceptionHandler({MissingServletRequestPartException.class, MultipartException.class})
     public ResponseEntity<WebResponse<Object>> handleMissingFile(Exception e) {
-        WebResponse<Object> response = new WebResponse<>(null, null, "File is required", null);
+        WebResponse<Object> response = new WebResponse<>();
+        response.setErrors("File is required");
         return ResponseEntity.badRequest().body(response);
     }
 
