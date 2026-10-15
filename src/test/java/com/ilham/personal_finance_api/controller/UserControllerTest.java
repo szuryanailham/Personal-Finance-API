@@ -11,6 +11,7 @@ import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -310,6 +311,41 @@ public class UserControllerTest extends AbstractIntegrationTest {
     @Test
     void testResendWithoutPendingRegistration() throws Exception {
         resend(EMAIL).andExpect(status().isBadRequest());
+    }
+
+    // ---------- current user ----------
+
+    @Test
+    void testGetCurrentUserSuccess() throws Exception {
+        User user = new User();
+        user.setFirstName("Ilham");
+        user.setLastName("Suryana");
+        user.setEmail(EMAIL);
+        user.setPassword(BCrypt.hashpw(PASSWORD, BCrypt.gensalt()));
+        user.setToken("test");
+        user.setTokenExpiredAt(System.currentTimeMillis() + 1000000);
+        userRepository.save(user);
+
+        mockMvc.perform(get("/api/users/me").header("Authorization", "Bearer test"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(user.getId().toString()))
+                .andExpect(jsonPath("$.data.firstName").value("Ilham"))
+                .andExpect(jsonPath("$.data.lastName").value("Suryana"))
+                .andExpect(jsonPath("$.data.email").value(EMAIL))
+                .andExpect(jsonPath("$.data.password").doesNotExist())
+                .andExpect(jsonPath("$.data.token").doesNotExist());
+    }
+
+    @Test
+    void testGetCurrentUserWithoutToken() throws Exception {
+        mockMvc.perform(get("/api/users/me"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void testGetCurrentUserInvalidToken() throws Exception {
+        mockMvc.perform(get("/api/users/me").header("Authorization", "Bearer salah"))
+                .andExpect(status().isUnauthorized());
     }
 
     // ---------- helpers ----------

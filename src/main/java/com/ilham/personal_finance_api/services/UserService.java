@@ -5,6 +5,7 @@ import org.springframework.stereotype.Service;
 import com.ilham.personal_finance_api.entity.User;
 import com.ilham.personal_finance_api.exception.DataAlreadyExistedException;
 import com.ilham.personal_finance_api.dto.RegisterUserResponse;
+import com.ilham.personal_finance_api.dto.UserResponse;
 import com.ilham.personal_finance_api.repository.PendingRegistration;
 import com.ilham.personal_finance_api.repository.UserRepository;
 
@@ -43,6 +44,15 @@ public RegisterUserResponse createVerifiedUser(PendingRegistration pending) {
      response.setEmail(user.getEmail());
      return response;
 
+}
+
+public UserResponse get(User user) {
+    UserResponse response = new UserResponse();
+    response.setId(user.getId());
+    response.setFirstName(user.getFirstName());
+    response.setLastName(user.getLastName());
+    response.setEmail(user.getEmail());
+    return response;
 }
 
 

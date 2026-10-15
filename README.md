@@ -55,6 +55,7 @@ A REST API for tracking and managing personal finances — income, expenses, tra
 | ------ | ----------------------- | --------------------------- | -------- |
 | POST   | `/api/auth/sign-up`     | Register a new user         | Public   |
 | POST   | `/api/auth/login`       | Log in a user                | Public   |
+| POST   | `/api/auth/google`      | Log in / sign up with a Google ID token (`{"idToken": "..."}`); requires `GOOGLE_CLIENT_IDS` | Public   |
 | POST   | `/api/transaction`      | Create a new transaction    | Required |
 | GET    | `/api/transaction/{transactionCode}` | Get transaction detail | Required |
 | GET    | `/api/transaction`      | List transactions (paginated) | Required |

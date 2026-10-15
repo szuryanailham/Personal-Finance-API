@@ -2,6 +2,7 @@ package com.ilham.personal_finance_api.controller;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -12,8 +13,11 @@ import com.ilham.personal_finance_api.dto.RegisterUserRequest;
 import com.ilham.personal_finance_api.dto.RegisterUserResponse;
 import com.ilham.personal_finance_api.dto.ResendOtpRequest;
 import com.ilham.personal_finance_api.dto.VerifyOtpRequest;
+import com.ilham.personal_finance_api.dto.UserResponse;
 import com.ilham.personal_finance_api.dto.WebResponse;
+import com.ilham.personal_finance_api.entity.User;
 import com.ilham.personal_finance_api.services.RegistrationService;
+import com.ilham.personal_finance_api.services.UserService;
 
 import jakarta.validation.Valid;
 
@@ -21,9 +25,23 @@ import jakarta.validation.Valid;
 public class UserController {
 
     private final RegistrationService registrationService;
+    private final UserService userService;
 
-    public UserController(RegistrationService registrationService) {
+    public UserController(RegistrationService registrationService, UserService userService) {
         this.registrationService = registrationService;
+        this.userService = userService;
+    }
+
+    @GetMapping(
+        path = "/api/users/me",
+        produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public WebResponse<UserResponse> me(User user) {
+        UserResponse response = userService.get(user);
+        WebResponse<UserResponse> webResponse = new WebResponse<>();
+        webResponse.setData(response);
+        webResponse.setMessage("Get current user successfully");
+        return webResponse;
     }
 
     @PostMapping(
