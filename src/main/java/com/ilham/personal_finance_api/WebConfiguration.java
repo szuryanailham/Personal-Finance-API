@@ -35,6 +35,8 @@ public class WebConfiguration implements WebMvcConfigurer {
                 .allowedOrigins(allowedOrigins)
                 .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
                 .allowedHeaders("Authorization", "Content-Type", "Accept")
+                // Retry-After bukan header CORS-safelisted, jadi harus di-expose agar bisa dibaca frontend
+                .exposedHeaders("Retry-After")
                 .maxAge(CORS_MAX_AGE_SECONDS);
     }
 }

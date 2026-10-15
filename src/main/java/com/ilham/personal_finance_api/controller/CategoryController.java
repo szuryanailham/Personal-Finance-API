@@ -44,12 +44,10 @@ public class CategoryController {
 
   public WebResponse<CreateCategoryResponse> create(User user ,@Valid @RequestBody  CreateCategoryRequest request) {
     CreateCategoryResponse response = categoryService.create(user,request);
-    return new WebResponse<>(
-        response,
-        "Category created successfully",
-        null,
-        null
-    );
+    WebResponse<CreateCategoryResponse> webResponse = new WebResponse<>();
+    webResponse.setData(response);
+    webResponse.setMessage("Category created successfully");
+    return webResponse;
   }
 
     @GetMapping(
@@ -59,7 +57,9 @@ public class CategoryController {
 
   public WebResponse<CategoryResponse>get(User user , @PathVariable("categoryId") UUID categoryId) {
     CategoryResponse categoryResponse = categoryService.get(user, categoryId);
-    return WebResponse.<CategoryResponse>builder().data(categoryResponse).build();
+    WebResponse<CategoryResponse> response = new WebResponse<>();
+    response.setData(categoryResponse);
+    return response;
   }
 
       @GetMapping(
@@ -73,15 +73,16 @@ public class CategoryController {
       @RequestParam int skip,
       @RequestParam int limit) {
     Page<CategoryResponse> categories = categoryService.getAll( user, skip, limit);
-    return WebResponse.<List<CategoryResponse>>builder()
-        .data(categories.getContent())
-        .paging(PaginationResponse.builder()
-            .currentPage(categories.getNumber() + 1)
-            .totalPage(categories.getTotalPages())
-            .size(categories.getSize())
-            .totalItem(categories.getTotalElements())
-            .build())
-        .build();
+    PaginationResponse paging = new PaginationResponse();
+    paging.setCurrentPage(categories.getNumber() + 1);
+    paging.setTotalPage(categories.getTotalPages());
+    paging.setSize(categories.getSize());
+    paging.setTotalItem(categories.getTotalElements());
+
+    WebResponse<List<CategoryResponse>> response = new WebResponse<>();
+    response.setData(categories.getContent());
+    response.setPaging(paging);
+    return response;
   }
 
 @DeleteMapping(
@@ -92,9 +93,9 @@ public WebResponse<String> delete(User user, @PathVariable("categoryId") UUID ca
 ) {
     categoryService.delete(user, categoryId);
 
-    return WebResponse.<String>builder()
-        .message("Category deleted successfully")
-        .build();
+    WebResponse<String> response = new WebResponse<>();
+    response.setMessage("Category deleted successfully");
+    return response;
 }
 
 
@@ -109,10 +110,10 @@ public WebResponse<CategoryStatisticResponse> getStatistic(User user,
 ) {
     CategoryStatisticResponse response = categoryService.getExpenseStatistic(
         user, CategoryStatPeriod.fromValue(period), startDate, endDate);
-    return WebResponse.<CategoryStatisticResponse>builder()
-        .data(response)
-        .message("Expense statistics retrieved successfully")
-        .build();
+    WebResponse<CategoryStatisticResponse> webResponse = new WebResponse<>();
+    webResponse.setData(response);
+    webResponse.setMessage("Expense statistics retrieved successfully");
+    return webResponse;
 }
 
 
@@ -128,7 +129,9 @@ public WebResponse<CategoryResponse>update( User user ,
   @PathVariable("categoryId") UUID categoryId
 ) {
     CategoryResponse categoryResponse = categoryService.update(user,categoryId, request);
-  return  WebResponse.<CategoryResponse>builder().data(categoryResponse).build();
+    WebResponse<CategoryResponse> response = new WebResponse<>();
+    response.setData(categoryResponse);
+    return response;
 }
 
 

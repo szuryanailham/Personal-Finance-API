@@ -3,15 +3,11 @@ package com.ilham.personal_finance_api.dto;
 import java.time.LocalDate;
 import java.util.UUID;
 
-import lombok.AllArgsConstructor;
-import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 @Data
-@AllArgsConstructor
 @NoArgsConstructor
-@Builder
 
 public class TransactionFilter {
     private String search;

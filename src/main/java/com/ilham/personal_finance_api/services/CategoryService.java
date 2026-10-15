@@ -73,10 +73,10 @@ public class CategoryService {
                     category.setType(request.getType().name());
                     categoryRepository.save(category);
 
-                    return CreateCategoryResponse.builder()
-                    .name(category.getName())
-                    .type(category.getType())
-                    .build();
+                    CreateCategoryResponse response = new CreateCategoryResponse();
+                    response.setName(category.getName());
+                    response.setType(category.getType());
+                    return response;
                 
     }
 
@@ -117,7 +117,11 @@ public class CategoryService {
 
 
     private CategoryResponse toCategoryResponse(Category category) {
-         return CategoryResponse.builder().id(category.getId()).name(category.getName()).type(category.getType()).build();
+         CategoryResponse response = new CategoryResponse();
+         response.setId(category.getId());
+         response.setName(category.getName());
+         response.setType(category.getType());
+         return response;
     }
 
     @Transactional
@@ -155,11 +159,15 @@ public class CategoryService {
             .map(CategoryStatisticItemResponse::getTotalAmount)
             .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        return CategoryStatisticResponse.builder()
-            .period(new PeriodResponse(range.start(), range.end()))
-            .totalExpense(totalExpense)
-            .categories(items.stream().map(item -> withPercentage(item, totalExpense)).toList())
-            .build();
+        PeriodResponse periodResponse = new PeriodResponse();
+        periodResponse.setStartDate(range.start());
+        periodResponse.setEndDate(range.end());
+
+        CategoryStatisticResponse response = new CategoryStatisticResponse();
+        response.setPeriod(periodResponse);
+        response.setTotalExpense(totalExpense);
+        response.setCategories(items.stream().map(item -> withPercentage(item, totalExpense)).toList());
+        return response;
     }
 
     // [HELPER] rentang kalender inklusif; startDate/endDate hanya dipakai untuk CUSTOM
@@ -194,7 +202,10 @@ public class CategoryService {
                 .multiply(ONE_HUNDRED)
                 .divide(totalExpense, PERCENTAGE_SCALE, RoundingMode.HALF_UP);
 
-        return item.toBuilder().percentage(percentage).build();
+        CategoryStatisticItemResponse result = new CategoryStatisticItemResponse(
+            item.getCategoryId(), item.getCategoryName(), item.getTotalAmount(), item.getTransactionCount());
+        result.setPercentage(percentage);
+        return result;
     }
 
     private record DateRange(LocalDate start, LocalDate end) {

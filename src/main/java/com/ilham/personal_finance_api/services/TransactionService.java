@@ -91,14 +91,14 @@ public class TransactionService {
 
         transactionRepository.save(transaction);
 
-        return CreateTransactionResponse.builder()
-            .id(transaction.getId())
-            .transactionName(transaction.getTransactionName())
-            .amount(transaction.getAmount())
-            .description(transaction.getDescription())
-            .categoryId(category.getId())
-            .date(request.getDate())
-            .build();
+        CreateTransactionResponse response = new CreateTransactionResponse();
+        response.setId(transaction.getId());
+        response.setTransactionName(transaction.getTransactionName());
+        response.setAmount(transaction.getAmount());
+        response.setDescription(transaction.getDescription());
+        response.setCategoryId(category.getId());
+        response.setDate(request.getDate());
+        return response;
     }
 
     // [MAIN] bulk create transaction (setelah preview import)
@@ -192,11 +192,11 @@ public void delete(User user, String transactionCode) {
         Map<Boolean, List<String>> partitioned = requestedCodes.stream()
             .collect(Collectors.partitioningBy(deletableCodes::contains));
 
-        return BulkDeleteTransactionResponse.builder()
-            .deletedCount(partitioned.get(true).size())
-            .deletedCodes(partitioned.get(true))
-            .skippedCodes(partitioned.get(false))
-            .build();
+        BulkDeleteTransactionResponse response = new BulkDeleteTransactionResponse();
+        response.setDeletedCount(partitioned.get(true).size());
+        response.setDeletedCodes(partitioned.get(true));
+        response.setSkippedCodes(partitioned.get(false));
+        return response;
     }
 
 
@@ -395,12 +395,12 @@ public TransactionResponse get(User user , String transactionCode) {
         PeriodTotals current = sumTotals(user, range.currentStart(), range.currentEnd());
         PeriodTotals last = sumTotals(user, range.lastStart(), range.currentStart());
 
-        return TransactionStateResponse.builder()
-            .totalBalance(toStatistic(current.balance(), last.balance()))
-            .totalIncome(toStatistic(current.income(), last.income()))
-            .totalExpense(toStatistic(current.expense(), last.expense()))
-            .totalSaving(toStatistic(current.saving(), last.saving()))
-            .build();
+        TransactionStateResponse response = new TransactionStateResponse();
+        response.setTotalBalance(toStatistic(current.balance(), last.balance()));
+        response.setTotalIncome(toStatistic(current.income(), last.income()));
+        response.setTotalExpense(toStatistic(current.expense(), last.expense()));
+        response.setTotalSaving(toStatistic(current.saving(), last.saving()));
+        return response;
     }
 
     // [HELPER] periode sebelumnya selalu berakhir tepat di currentStart
@@ -468,10 +468,10 @@ public TransactionResponse get(User user , String transactionCode) {
 
    // [HELPER]
    private TransactionStateResponse.Statistic toStatistic(BigDecimal current, BigDecimal last) {
-      return TransactionStateResponse.Statistic.builder()
-          .amount(current)
-          .changePercentage(calculateChangePercentage(current, last))
-          .build();
+      TransactionStateResponse.Statistic statistic = new TransactionStateResponse.Statistic();
+      statistic.setAmount(current);
+      statistic.setChangePercentage(calculateChangePercentage(current, last));
+      return statistic;
    }
 
 // [HELPER]
@@ -489,23 +489,23 @@ private BigDecimal calculateChangePercentage( BigDecimal current, BigDecimal las
 
     // [HELPER]
     private TransactionResponse toTransactionResponse(Transaction transaction, Category category) {
-        return TransactionResponse.builder()
-            .transactionName(transaction.getTransactionName())
-            .transactionCode(transaction.getTransactionCode())
-            .amount(transaction.getAmount())
-            .description(transaction.getDescription())
-            .category(toCategoryResponse(category))
-            .date(transaction.getTransactionDate().toLocalDate().toString())
-            .build();
+        TransactionResponse response = new TransactionResponse();
+        response.setTransactionName(transaction.getTransactionName());
+        response.setTransactionCode(transaction.getTransactionCode());
+        response.setAmount(transaction.getAmount());
+        response.setDescription(transaction.getDescription());
+        response.setCategory(toCategoryResponse(category));
+        response.setDate(transaction.getTransactionDate().toLocalDate().toString());
+        return response;
     }
 
     // [HELPER]
     private CategoryResponse toCategoryResponse(Category category) {
-        return CategoryResponse.builder()
-            .id(category.getId())
-            .name(category.getName())
-            .type(category.getType())
-            .build();
+        CategoryResponse response = new CategoryResponse();
+        response.setId(category.getId());
+        response.setName(category.getName());
+        response.setType(category.getType());
+        return response;
     }
 
 
@@ -542,12 +542,12 @@ private BigDecimal calculateChangePercentage( BigDecimal current, BigDecimal las
             endDate.plusDays(1).atStartOfDay()
         );
 
-        return TransactionStatisticResponse.builder()
-            .period(periode)
-            .startDate(startDate)
-            .endDate(endDate)
-            .items(fillMissingDates(dailyItems, startDate, endDate))
-            .build();
+        TransactionStatisticResponse response = new TransactionStatisticResponse();
+        response.setPeriod(periode);
+        response.setStartDate(startDate);
+        response.setEndDate(endDate);
+        response.setItems(fillMissingDates(dailyItems, startDate, endDate));
+        return response;
     }
 
     // [HELPER]
@@ -560,11 +560,8 @@ private BigDecimal calculateChangePercentage( BigDecimal current, BigDecimal las
             .collect(Collectors.toMap(TransactionPeriodItemResponse::getDate, Function.identity()));
 
         return startDate.datesUntil(endDate.plusDays(1))
-            .map(date -> itemsByDate.getOrDefault(date, TransactionPeriodItemResponse.builder()
-                .date(date)
-                .income(BigDecimal.ZERO)
-                .expense(BigDecimal.ZERO)
-                .build()))
+            .map(date -> itemsByDate.getOrDefault(date,
+                new TransactionPeriodItemResponse(date, BigDecimal.ZERO, BigDecimal.ZERO)))
             .toList();
     }
 

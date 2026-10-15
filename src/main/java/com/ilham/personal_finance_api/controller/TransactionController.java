@@ -74,12 +74,10 @@ public class TransactionController {
 
     public WebResponse<CreateTransactionResponse> create(User user , @Valid @RequestBody CreateTransactionRequest request) {
         CreateTransactionResponse response = transactionService.create(user, request);
-        return new WebResponse<>(
-            response,
-            "Transaction created Successfully",
-            null
-            , null
-        );
+        WebResponse<CreateTransactionResponse> webResponse = new WebResponse<>();
+        webResponse.setData(response);
+        webResponse.setMessage("Transaction created Successfully");
+        return webResponse;
     }
 
 
@@ -90,10 +88,10 @@ public class TransactionController {
     )
     public WebResponse<List<TransactionResponse>> bulkCreate(User user, @Valid @RequestBody BulkCreateTransactionRequest request) {
         List<TransactionResponse> transactions = transactionService.bulkCreate(user, request);
-        return WebResponse.<List<TransactionResponse>>builder()
-            .data(transactions)
-            .message(transactions.size() + " transactions saved successfully")
-            .build();
+        WebResponse<List<TransactionResponse>> response = new WebResponse<>();
+        response.setData(transactions);
+        response.setMessage(transactions.size() + " transactions saved successfully");
+        return response;
     }
 
 
@@ -104,10 +102,10 @@ public class TransactionController {
     )
     public WebResponse<BulkDeleteTransactionResponse> bulkDelete(User user, @Valid @RequestBody BulkDeleteTransactionRequest request) {
         BulkDeleteTransactionResponse response = transactionService.bulkDelete(user, request);
-        return WebResponse.<BulkDeleteTransactionResponse>builder()
-            .data(response)
-            .message(response.getDeletedCount() + " transactions deleted successfully")
-            .build();
+        WebResponse<BulkDeleteTransactionResponse> webResponse = new WebResponse<>();
+        webResponse.setData(response);
+        webResponse.setMessage(response.getDeletedCount() + " transactions deleted successfully");
+        return webResponse;
     }
 
     @PatchMapping(
@@ -117,10 +115,10 @@ public class TransactionController {
     )
     public BulkUpdateTransactionResponse bulkUpdate(User user, @Valid @RequestBody BulkUpdateTransactionRequest request) {
         int updatedCount = transactionService.bulkUpdate(user, request);
-        return BulkUpdateTransactionResponse.builder()
-            .message(updatedCount + " transactions updated successfully")
-            .updatedCount(updatedCount)
-            .build();
+        BulkUpdateTransactionResponse response = new BulkUpdateTransactionResponse();
+        response.setMessage(updatedCount + " transactions updated successfully");
+        response.setUpdatedCount(updatedCount);
+        return response;
     }
 
     @DeleteMapping  (
@@ -130,9 +128,9 @@ public class TransactionController {
     
     public WebResponse<String> delete(User user, @PathVariable("transactionCode") String categoryId) {
         transactionService.delete(user, categoryId);
-        return WebResponse.<String>builder()
-        .message("Transaction deleted successfully")
-        .build();
+        WebResponse<String> response = new WebResponse<>();
+        response.setMessage("Transaction deleted successfully");
+        return response;
     }
 
    @GetMapping (
@@ -141,7 +139,9 @@ public class TransactionController {
 )
     public WebResponse<TransactionResponse> get(User user , @PathVariable("transactionCode") String transactionCode) {
         TransactionResponse transactionResponse = transactionService.get(user, transactionCode);
-        return WebResponse.<TransactionResponse>builder().data(transactionResponse).build();
+        WebResponse<TransactionResponse> response = new WebResponse<>();
+        response.setData(transactionResponse);
+        return response;
     }
 
 @GetMapping(
@@ -161,31 +161,29 @@ public WebResponse<List<TransactionResponse>> getAll(
         @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
         @RequestParam(required = false) String sort
 ) {
-    TransactionFilter filter = TransactionFilter.builder()
-            .search(search)
-            .date(date)
-            .categoryId(categoryId)
-            .type(type)
-            .period(TransactionDatePeriod.fromValue(period))
-            .startDate(startDate)
-            .endDate(endDate)
-            .sort(sort)
-            .build();
+    TransactionFilter filter = new TransactionFilter();
+    filter.setSearch(search);
+    filter.setDate(date);
+    filter.setCategoryId(categoryId);
+    filter.setType(type);
+    filter.setPeriod(TransactionDatePeriod.fromValue(period));
+    filter.setStartDate(startDate);
+    filter.setEndDate(endDate);
+    filter.setSort(sort);
 
     Page<TransactionResponse> transaction =
             transactionService.getAll(user, skip, limit, filter);
 
-    return WebResponse.<List<TransactionResponse>>builder()
-            .data(transaction.getContent())
-            .paging(
-                PaginationResponse.builder()
-                    .currentPage(transaction.getNumber() + 1)
-                    .totalPage(transaction.getTotalPages())
-                    .size(transaction.getSize())
-                    .totalItem(transaction.getTotalElements())
-                    .build()
-            )
-            .build();
+    PaginationResponse paging = new PaginationResponse();
+    paging.setCurrentPage(transaction.getNumber() + 1);
+    paging.setTotalPage(transaction.getTotalPages());
+    paging.setSize(transaction.getSize());
+    paging.setTotalItem(transaction.getTotalElements());
+
+    WebResponse<List<TransactionResponse>> response = new WebResponse<>();
+    response.setData(transaction.getContent());
+    response.setPaging(paging);
+    return response;
 }
 
 
@@ -199,14 +197,15 @@ public WebResponse<List<TransactionResponse>> getAll(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate
     ) {
-        TransactionStatFilter filter = TransactionStatFilter.builder()
-            .type(TransactionStatPeriod.fromValue(type))
-            .startDate(startDate)
-            .endDate(endDate)
-            .build();
+        TransactionStatFilter filter = new TransactionStatFilter();
+        filter.setType(TransactionStatPeriod.fromValue(type));
+        filter.setStartDate(startDate);
+        filter.setEndDate(endDate);
 
         TransactionStateResponse state = transactionService.getStat(user, filter);
-        return WebResponse.<TransactionStateResponse>builder().data(state).build();
+        WebResponse<TransactionStateResponse> response = new WebResponse<>();
+        response.setData(state);
+        return response;
     }
 
 
@@ -219,12 +218,9 @@ public WebResponse<List<TransactionResponse>> getAll(
         TransactionStatisticResponse statistic =
             transactionService.getStatistic(user, periode);
 
-        return WebResponse.<TransactionStatisticResponse>builder()
-            .data(statistic)
-            .message(null)
-            .errors(null)
-            .paging(null)
-            .build();
+        WebResponse<TransactionStatisticResponse> response = new WebResponse<>();
+        response.setData(statistic);
+        return response;
     }
 
 @PatchMapping (
@@ -240,7 +236,9 @@ public WebResponse<TransactionResponse>update(User user ,
     @PathVariable("transactionCode") String transactionCode
 ) {
     TransactionResponse transactionResponse = transactionService.update(user, transactionCode, request);
-    return WebResponse.<TransactionResponse>builder().data(transactionResponse).build();
+    WebResponse<TransactionResponse> response = new WebResponse<>();
+    response.setData(transactionResponse);
+    return response;
 }
 
     @GetMapping(path = "/api/transaction/import/template")
@@ -261,11 +259,10 @@ public WebResponse<TransactionResponse>update(User user ,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate
     ) {
-        TransactionExportFilter filter = TransactionExportFilter.builder()
-            .period(TransactionExportPeriod.fromValue(period))
-            .startDate(startDate)
-            .endDate(endDate)
-            .build();
+        TransactionExportFilter filter = new TransactionExportFilter();
+        filter.setPeriod(TransactionExportPeriod.fromValue(period));
+        filter.setStartDate(startDate);
+        filter.setEndDate(endDate);
 
         ExportFile file = transactionExportService.export(user, filter);
 

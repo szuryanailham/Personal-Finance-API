@@ -12,14 +12,15 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import lombok.RequiredArgsConstructor;
-
 @RestController
 @RequestMapping("/api/flyway")
-@RequiredArgsConstructor 
 public class FlyWayController {
 
     private final Flyway flyway;
+
+    public FlyWayController(Flyway flyway) {
+        this.flyway = flyway;
+    }
 
     @GetMapping("/info")
     public List<Map<String, Object>> getMigrationInfo() {

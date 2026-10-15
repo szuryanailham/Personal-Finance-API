@@ -28,11 +28,9 @@ public class AuthController {
 
     public WebResponse<TokenResponse> login(@RequestBody LoginUserRequest request) {
         TokenResponse tokenResponse = authService.login(request);
-        return new WebResponse<>(
-        tokenResponse,
-        "Register successfully",
-        null,
-        null
-        );
+        WebResponse<TokenResponse> response = new WebResponse<>();
+        response.setData(tokenResponse);
+        response.setMessage("Register successfully");
+        return response;
     }
 }

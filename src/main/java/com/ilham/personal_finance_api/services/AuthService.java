@@ -39,7 +39,10 @@ public class AuthService {
             user.setTokenExpiredAt(next30Days());
             userRepository.save(user);
 
-            return TokenResponse.builder().token(user.getToken()).expiredAt(user.getTokenExpiredAt()).build();
+            TokenResponse tokenResponse = new TokenResponse();
+            tokenResponse.setToken(user.getToken());
+            tokenResponse.setExpiredAt(user.getTokenExpiredAt());
+            return tokenResponse;
         } else {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Username or Password Wrong");
         }

@@ -4,8 +4,6 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 
-import lombok.AllArgsConstructor;
-import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -13,9 +11,7 @@ import lombok.Setter;
 
 @Getter 
 @Setter 
-@Builder 
 @NoArgsConstructor 
-@AllArgsConstructor 
 
 public class TransactionStatisticResponse {
 
@@ -26,13 +22,18 @@ public class TransactionStatisticResponse {
 
 @Getter 
 @Setter 
-@Builder 
 @NoArgsConstructor 
-@AllArgsConstructor 
 
     public static class TransactionPeriodItemResponse {
         private LocalDate date;
         private BigDecimal income;
         private BigDecimal expense;
+
+        // dipakai oleh JPQL constructor projection
+        public TransactionPeriodItemResponse(LocalDate date, BigDecimal income, BigDecimal expense) {
+            this.date = date;
+            this.income = income;
+            this.expense = expense;
+        }
     }
 }

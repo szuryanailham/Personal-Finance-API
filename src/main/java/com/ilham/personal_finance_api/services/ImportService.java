@@ -101,17 +101,17 @@ public class ImportService {
             Category category = categoriesByName.get(categoryName);
             List<ImportFieldError> errors = validateTransaction(name, categoryName, category, date, amount);
 
-            results.add(TransactionImportRow.builder()
-                .row(dataRow.rowIndex() - firstDataRow + 1)
-                .name(name)
-                .category(categoryName)
-                .categoryId(category != null ? category.getId() : null)
-                .categoryType(category != null ? category.getType() : null)
-                .date(date.text())
-                .amount(amount.raw())
-                .valid(errors.isEmpty())
-                .errors(errors)
-                .build());
+            TransactionImportRow importRow = new TransactionImportRow();
+            importRow.setRow(dataRow.rowIndex() - firstDataRow + 1);
+            importRow.setName(name);
+            importRow.setCategory(categoryName);
+            importRow.setCategoryId(category != null ? category.getId() : null);
+            importRow.setCategoryType(category != null ? category.getType() : null);
+            importRow.setDate(date.text());
+            importRow.setAmount(amount.raw());
+            importRow.setValid(errors.isEmpty());
+            importRow.setErrors(errors);
+            results.add(importRow);
         }
         return results;
     }
@@ -152,7 +152,10 @@ public class ImportService {
     }
 
     private ImportFieldError fieldError(String fieldName, String error) {
-        return ImportFieldError.builder().fieldName(fieldName).error(error).build();
+        ImportFieldError fieldError = new ImportFieldError();
+        fieldError.setFieldName(fieldName);
+        fieldError.setError(error);
+        return fieldError;
     }
 
     // [HELPER] summary
@@ -160,27 +163,29 @@ public class ImportService {
         ImportSheetSummary transactionSummary = summarize(transactions.stream().map(TransactionImportRow::getErrors).toList());
         int invalid = transactionSummary.getInvalid();
 
-        ImportSummary summary = ImportSummary.builder()
-            .totalRows(transactionSummary.getTotalRows())
-            .valid(transactionSummary.getValid())
-            .invalid(invalid)
-            .transactions(transactionSummary)
-            .build();
+        ImportSummary summary = new ImportSummary();
+        summary.setTotalRows(transactionSummary.getTotalRows());
+        summary.setValid(transactionSummary.getValid());
+        summary.setInvalid(invalid);
+        summary.setTransactions(transactionSummary);
 
-        return ImportResponse.builder()
-            .code(HttpStatus.OK.value())
-            .message(invalid == 0 ? MESSAGE_SUCCESS : MESSAGE_WITH_ERRORS)
-            .summary(summary)
-            .data(ImportData.builder().transactions(transactions).build())
-            .build();
+        ImportData data = new ImportData();
+        data.setTransactions(transactions);
+
+        ImportResponse response = new ImportResponse();
+        response.setCode(HttpStatus.OK.value());
+        response.setMessage(invalid == 0 ? MESSAGE_SUCCESS : MESSAGE_WITH_ERRORS);
+        response.setSummary(summary);
+        response.setData(data);
+        return response;
     }
 
     private ImportSheetSummary summarize(List<List<ImportFieldError>> rowErrors) {
         int invalid = (int) rowErrors.stream().filter(errors -> !errors.isEmpty()).count();
-        return ImportSheetSummary.builder()
-            .totalRows(rowErrors.size())
-            .valid(rowErrors.size() - invalid)
-            .invalid(invalid)
-            .build();
+        ImportSheetSummary sheetSummary = new ImportSheetSummary();
+        sheetSummary.setTotalRows(rowErrors.size());
+        sheetSummary.setValid(rowErrors.size() - invalid);
+        sheetSummary.setInvalid(invalid);
+        return sheetSummary;
     }
 }
