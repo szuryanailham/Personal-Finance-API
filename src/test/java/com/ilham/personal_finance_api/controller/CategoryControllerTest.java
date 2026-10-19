@@ -296,7 +296,8 @@ void testDeleteCategorySuccess() throws Exception {
                 WebResponse<String> response = objectMapper.readValue(result.getResponse().getContentAsString(), new TypeReference<>() {});
 
                 assertNull(response.getErrors());
-                assertEquals("Category deleted successfully", response.getData());
+                assertNull(response.getData());
+                assertEquals("Category deleted successfully", response.getMessage());
             }
         );
 }
