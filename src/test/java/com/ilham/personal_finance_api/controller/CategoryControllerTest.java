@@ -74,6 +74,7 @@ public class CategoryControllerTest extends AbstractIntegrationTest {
 void testCreateCategoryDuplicate()  throws Exception {
     Category category = new Category();
     category.setName("test");
+    category.setUser(user);
     category.setType(TransactionType.INCOME.name());
 
     categoryRepository.save(category);

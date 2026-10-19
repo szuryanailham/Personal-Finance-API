@@ -2,6 +2,7 @@ package com.ilham.personal_finance_api.services;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import org.apache.poi.ss.usermodel.Row;
@@ -18,7 +19,8 @@ class ExportTemplateReaderTest {
     @Test
     void openLoadsBundledTemplate() throws Exception {
         try (XSSFWorkbook workbook = reader.open()) {
-            assertEquals(2, workbook.getNumberOfSheets());
+            assertNotNull(workbook.getSheet(ExportTemplateReader.SHEET_SUMMARY));
+            assertNotNull(workbook.getSheet(ExportTemplateReader.SHEET_TRANSACTION));
         }
     }
 
