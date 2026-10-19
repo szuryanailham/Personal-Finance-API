@@ -1,0 +1,9 @@
+target/
+.git/
+.github/
+.vscode/
+.claude/
+docs/
+.env
+.env.*
+**/.~lock.*#
