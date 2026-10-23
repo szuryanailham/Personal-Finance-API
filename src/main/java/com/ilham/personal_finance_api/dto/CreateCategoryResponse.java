@@ -9,5 +9,4 @@ import lombok.NoArgsConstructor;
 public class CreateCategoryResponse {
  private String name;   
  private String type;
-
 }

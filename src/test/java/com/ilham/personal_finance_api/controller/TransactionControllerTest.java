@@ -723,7 +723,7 @@ void testUpdateTransactionPartialSuccess() throws Exception {
 @Test 
 void tesUpdateTransactionSuccess() throws Exception {
  Category secondCategory = new Category();
-    secondCategory.setName("test");
+    secondCategory.setName("test second");
     secondCategory.setUser(user);
     secondCategory.setType(TransactionType.INCOME.name());
     secondCategory = categoryRepository.save(secondCategory);
