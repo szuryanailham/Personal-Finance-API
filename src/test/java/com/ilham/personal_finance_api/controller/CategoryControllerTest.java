@@ -370,7 +370,122 @@ void testUpdateCategorySuccess() throws Exception {
 
 }
 
+private Category saveCategory(User owner, String name, TransactionType type, boolean isDeleted) {
+    Category category = new Category();
+    category.setName(name);
+    category.setUser(owner);
+    category.setType(type.name());
+    category.setDeleted(isDeleted);
+    return categoryRepository.save(category);
+}
 
+private User saveOtherUser() {
+    User other = new User();
+    other.setFirstName("other");
+    other.setLastName("other");
+    other.setEmail("other@gmail.com");
+    other.setPassword(BCrypt.hashpw("other", BCrypt.gensalt()));
+    other.setToken("other");
+    other.setTokenExpiredAt(System.currentTimeMillis() + 1000000);
+    return userRepository.save(other);
+}
 
+private String toJson(String name, TransactionType type) throws Exception {
+    CreateCategoryRequest request = new CreateCategoryRequest();
+    request.setName(name);
+    request.setType(type);
+    return objectMapper.writeValueAsString(request);
+}
+
+@Test
+void testCreateCategoryAllowsSameNameOwnedByOtherUser() throws Exception {
+    saveCategory(saveOtherUser(), "test", TransactionType.INCOME, false);
+
+    mockMvc.perform(
+        post("/api/categories")
+            .accept(MediaType.APPLICATION_JSON)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(toJson("test", TransactionType.INCOME))
+            .header("Authorization", "Bearer test")
+    ).andExpectAll(status().isOk());
+}
+
+@Test
+void testCreateCategoryAllowsSameNameAsDeletedCategory() throws Exception {
+    saveCategory(user, "test", TransactionType.INCOME, true);
+
+    mockMvc.perform(
+        post("/api/categories")
+            .accept(MediaType.APPLICATION_JSON)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(toJson("test", TransactionType.INCOME))
+            .header("Authorization", "Bearer test")
+    ).andExpectAll(status().isOk());
+}
+
+@Test
+void testCreateCategoryDuplicateIgnoresCaseAndWhitespace() throws Exception {
+    saveCategory(user, "test", TransactionType.INCOME, false);
+
+    mockMvc.perform(
+        post("/api/categories")
+            .accept(MediaType.APPLICATION_JSON)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(toJson("  TEST  ", TransactionType.INCOME))
+            .header("Authorization", "Bearer test")
+    ).andExpectAll(status().isConflict());
+}
+
+@Test
+void testCreateCategoryTrimsName() throws Exception {
+    mockMvc.perform(
+        post("/api/categories")
+            .accept(MediaType.APPLICATION_JSON)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(toJson("  test  ", TransactionType.INCOME))
+            .header("Authorization", "Bearer test")
+    ).andExpectAll(status().isOk()).andDo(result -> {
+        WebResponse<CreateCategoryResponse> response = objectMapper.readValue(
+            result.getResponse().getContentAsString(),
+            new TypeReference<WebResponse<CreateCategoryResponse>>() {}
+        );
+        assertEquals("test", response.getData().getName());
+    });
+}
+
+@Test
+void testUpdateCategoryDuplicate() throws Exception {
+    saveCategory(user, "Makan", TransactionType.EXPENSE, false);
+    Category target = saveCategory(user, "Transport", TransactionType.EXPENSE, false);
+
+    UpdateCategoryRequest request = new UpdateCategoryRequest();
+    request.setName("makan");
+    request.setType(TransactionType.EXPENSE);
+
+    mockMvc.perform(
+        put("/api/categories/" + target.getId())
+            .accept(MediaType.APPLICATION_JSON)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(objectMapper.writeValueAsString(request))
+            .header("Authorization", "Bearer test")
+    ).andExpectAll(status().isConflict());
+}
+
+@Test
+void testUpdateCategoryKeepingOwnName() throws Exception {
+    Category target = saveCategory(user, "Makan", TransactionType.EXPENSE, false);
+
+    UpdateCategoryRequest request = new UpdateCategoryRequest();
+    request.setName("Makan");
+    request.setType(TransactionType.EXPENSE);
+
+    mockMvc.perform(
+        put("/api/categories/" + target.getId())
+            .accept(MediaType.APPLICATION_JSON)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(objectMapper.writeValueAsString(request))
+            .header("Authorization", "Bearer test")
+    ).andExpectAll(status().isOk());
+}
 
 }

@@ -14,7 +14,8 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface CategoryRepository extends JpaRepository<Category, UUID> {
-    boolean existsByNameAndType(String name, String type);
+    boolean existsByUserAndNameIgnoreCaseAndTypeAndIsDeletedFalse(User user, String name, String type);
+    boolean existsByUserAndNameIgnoreCaseAndTypeAndIsDeletedFalseAndIdNot(User user, String name, String type, UUID id);
     Page<Category> findAllByUserAndIsDeletedFalse(User user, Pageable pageable);
     Optional<Category> findByIdAndUser(UUID id, User user);
     List<Category> findAllByUserAndIsDeletedFalseOrderByTypeAscNameAsc(User user);

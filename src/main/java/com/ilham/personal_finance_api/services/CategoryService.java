@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.UUID;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
@@ -51,27 +52,24 @@ public class CategoryService {
 
     private static final BigDecimal ONE_HUNDRED = BigDecimal.valueOf(100);
     private static final int PERCENTAGE_SCALE = 2;
+    private static final String CATEGORY_ALREADY_EXISTS = "Category name is already existed";
 
     @Transactional 
     public CreateCategoryResponse create(User user ,CreateCategoryRequest request) {
 
             validationService.validate(request);
 
-            if (categoryRepository.existsByNameAndType(
-            request.getName(),
-            request.getType().name()
-            )) {
-
-                throw new DataAlreadyExistedException(
-                    "Category name is already existed"
-                );
+            String name = request.getName().trim();
+            String type = request.getType().name();
+            if (categoryRepository.existsByUserAndNameIgnoreCaseAndTypeAndIsDeletedFalse(user, name, type)) {
+                throw new DataAlreadyExistedException(CATEGORY_ALREADY_EXISTS);
             }
 
                     Category category = new Category();
-                    category.setName(request.getName());
+                    category.setName(name);
                     category.setUser(user);
-                    category.setType(request.getType().name());
-                    categoryRepository.save(category);
+                    category.setType(type);
+                    saveCategory(category);
 
                     CreateCategoryResponse response = new CreateCategoryResponse();
                     response.setName(category.getName());
@@ -137,11 +135,26 @@ public class CategoryService {
 
         Category category = categoryRepository.findByIdAndUser(categoryId, user)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Category not found"));
-        category.setName(request.getName());
-        category.setType(request.getType().name());
-        categoryRepository.save(category);
+        String name = request.getName().trim();
+        String type = request.getType().name();
+        if (categoryRepository.existsByUserAndNameIgnoreCaseAndTypeAndIsDeletedFalseAndIdNot(user, name, type, categoryId)) {
+            throw new DataAlreadyExistedException(CATEGORY_ALREADY_EXISTS);
+        }
+
+        category.setName(name);
+        category.setType(type);
+        saveCategory(category);
         return toCategoryResponse(category);
-    }    
+    }
+
+    // flush agar pelanggaran unique index (request bersamaan) langsung jadi 409, bukan 500 saat commit
+    private void saveCategory(Category category) {
+        try {
+            categoryRepository.saveAndFlush(category);
+        } catch (DataIntegrityViolationException e) {
+            throw new DataAlreadyExistedException(CATEGORY_ALREADY_EXISTS);
+        }
+    }
 
     @Transactional(readOnly = true)
     public CategoryStatisticResponse getExpenseStatistic(User user, CategoryStatPeriod period,
