@@ -13,8 +13,8 @@ public record ExportSummary(
     BigDecimal totalSaving
 ) {
 
-    // sama dengan perhitungan balance di endpoint stat: saving mengurangi balance
+    // sama dengan perhitungan balance di endpoint stat: saving adalah dana masuk ke akun SAVINGS
     public BigDecimal totalBalance() {
-        return totalIncome.subtract(totalExpense).subtract(totalSaving);
+        return totalIncome.subtract(totalExpense).add(totalSaving);
     }
 }

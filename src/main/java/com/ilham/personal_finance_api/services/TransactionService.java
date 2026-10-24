@@ -406,10 +406,10 @@ public TransactionResponse get(User user , String transactionCode) {
     // [HELPER] periode sebelumnya selalu berakhir tepat di currentStart
     private record StatRange(LocalDateTime lastStart, LocalDateTime currentStart, LocalDateTime currentEnd) {}
 
-    // [HELPER]
+    // [HELPER] saving adalah dana masuk ke akun SAVINGS, jadi menambah balance
     private record PeriodTotals(BigDecimal income, BigDecimal expense, BigDecimal saving) {
         BigDecimal balance() {
-            return income.subtract(expense).subtract(saving);
+            return income.subtract(expense).add(saving);
         }
     }
 

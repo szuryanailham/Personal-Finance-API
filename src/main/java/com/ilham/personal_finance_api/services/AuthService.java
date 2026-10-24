@@ -31,6 +31,9 @@ public class AuthService {
     @Autowired
     private GoogleTokenVerifier googleTokenVerifier;
 
+    @Autowired
+    private AccountService accountService;
+
     @Transactional
     public TokenResponse login(LoginUserRequest request) {
         validationService.validate(request);
@@ -69,12 +72,16 @@ public class AuthService {
         // Kolom password wajib diisi; hash acak membuat login password tidak bisa dipakai
         user.setPassword(BCrypt.hashpw(UUID.randomUUID().toString(), BCrypt.gensalt()));
 
+        User saved;
         try {
-            return userRepository.saveAndFlush(user);
+            saved = userRepository.saveAndFlush(user);
         } catch (DataIntegrityViolationException e) {
             // Race condition: email yang sama terdaftar di antara pengecekan dan insert
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Email is already registered, please retry");
         }
+
+        accountService.ensureDefaultAccounts(saved);
+        return saved;
     }
 
     private TokenResponse issueToken(User user) {

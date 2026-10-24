@@ -1120,7 +1120,7 @@ Authorization: Bearer <token>
 
 - Only the authenticated user's transactions with `isDeleted = false` are counted.
 - Type is taken from the transaction's category (`INCOME` / `EXPENSE` / `SAVING`).
-- `totalBalance.amount = income - expense` (saving is **not** subtracted).
+- `totalBalance.amount = income - expense + saving`. Saving is money added to the `SAVINGS` account, so it increases the balance. The export summary's "Total Balance" uses the same formula.
 - Every `amount` has a floor of `0`. A negative balance (expense > income) comes back as `0`, and its `changePercentage` is calculated from that `0`. The previous month's value is not floored.
 - Comparison period: the full calendar month before the month of `startDate` (e.g. `startDate=2026-09-10` compares against `2026-08-01`..`2026-08-31`).
 - `changePercentage = (current - previous) * 100 / |previous|`, rounded `HALF_UP` to 2 decimals.
@@ -1159,7 +1159,7 @@ Authorization: Bearer <token>
 
 | Field          | Type   | Description                         |
 | -------------- | ------ | ----------------------------------- |
-| `totalBalance` | Object | Income minus expense for the period |
+| `totalBalance` | Object | Income − expense + saving for the period |
 | `totalIncome`  | Object | Total `INCOME` for the period       |
 | `totalExpense` | Object | Total `EXPENSE` for the period      |
 | `totalSaving`  | Object | Total `SAVING` for the period       |
@@ -1294,7 +1294,145 @@ Each item:
 
 ---
 
-## 4. Operations
+## 4. Financial Setup & Accounts
+
+Every user has exactly two accounts: `MAIN` ("Main Balance") and `SAVINGS` ("Savings"). They are created when a user registers (manual sign-up or Google). Accounts that are missing for older users are created the first time they are needed.
+
+Balance rules:
+
+- `openingBalance` is the money the user already had when they started using the app. It is set once through the initial setup and is never changed by transactions.
+- The account of a transaction is decided by its category type. Clients never choose it:
+  - `INCOME` and `EXPENSE` → `MAIN`
+  - `SAVING` → `SAVINGS`. A saving adds money to `SAVINGS` and does **not** take it from `MAIN`.
+- `MAIN.currentBalance = openingBalance + INCOME − EXPENSE + transfers in − transfers out`
+- `SAVINGS.currentBalance = openingBalance + SAVING + transfers in − transfers out`
+- Changing a category's type moves all of its transactions to the matching account. Balances are calculated when they are read, so they update immediately.
+- To spend savings, transfer money from `SAVINGS` to `MAIN` (see Transfers).
+- `totalBalance` is the sum of all accounts' `currentBalance`. Transfers never change it.
+- Opening balances and transfers are **not** income, expense, or saving. They never appear in `/api/transaction/stat`, `/api/transaction/statistic`, `/api/categories/statistic`, or the export.
+
+### Get Financial Setup
+
+```http
+GET /api/financial-setup
+```
+
+**Authentication**: Required
+
+**HTTP 200 OK**
+
+```json
+{
+  "data": {
+    "setupCompleted": false,
+    "accounts": [
+      { "id": "uuid", "accountType": "MAIN", "name": "Main Balance", "openingBalance": 0, "currentBalance": 0 },
+      { "id": "uuid", "accountType": "SAVINGS", "name": "Savings", "openingBalance": 0, "currentBalance": 0 }
+    ],
+    "totalBalance": 0
+  }
+}
+```
+
+### Complete Financial Setup
+
+Sets the opening balances. This can be done **once** per user.
+
+```http
+PUT /api/financial-setup
+```
+
+**Authentication**: Required
+
+| Field     | Type   | Required | Description                                          |
+| --------- | ------ | -------- | ---------------------------------------------------- |
+| `balance` | Number | No       | Opening balance of `MAIN`; omitted or `null` → `0`   |
+| `savings` | Number | No       | Opening balance of `SAVINGS`; omitted or `null` → `0` |
+
+Both values must be `>= 0` with at most 13 integer digits and 2 decimals. An empty body (or no body) completes the setup with both balances set to `0`.
+
+```json
+{ "balance": 5000000, "savings": 2000000 }
+```
+
+**HTTP 200 OK**: same shape as Get Financial Setup, with `setupCompleted: true`.
+
+**HTTP 400 Bad Request**: negative value or invalid precision, e.g. `"errors": "Balance must not be negative"`
+
+**HTTP 409 Conflict**: `"errors": "Financial setup has already been completed"`. This is returned when the setup was already completed or skipped. Opening balances are never overwritten.
+
+### Skip Financial Setup
+
+```http
+POST /api/financial-setup/skip
+```
+
+**Authentication**: Required
+
+Marks the setup as completed and leaves both opening balances at `0`. The call is idempotent: calling it again, or calling it after the setup is already completed, returns `200` with the current state and changes nothing.
+
+---
+
+## 5. Transfers
+
+### Create Transfer
+
+Moves money between the authenticated user's own `MAIN` and `SAVINGS` accounts. A transfer is not income or expense.
+
+```http
+POST /api/transfers
+```
+
+**Authentication**: Required
+
+| Field           | Type   | Required | Description                                  |
+| --------------- | ------ | -------- | -------------------------------------------- |
+| `fromAccountId` | UUID   | Yes      | Source account (must belong to the user)     |
+| `toAccountId`   | UUID   | Yes      | Destination account (must differ from source) |
+| `amount`        | Number | Yes      | `> 0`, at most 13 integer digits and 2 decimals |
+| `note`          | String | No       | Max 255 characters                           |
+
+```json
+{ "fromAccountId": "uuid-savings", "toAccountId": "uuid-main", "amount": 500000, "note": "Move savings to main" }
+```
+
+**HTTP 200 OK**
+
+```json
+{
+  "data": {
+    "id": "uuid",
+    "fromAccountId": "uuid-savings",
+    "toAccountId": "uuid-main",
+    "amount": 500000,
+    "note": "Move savings to main",
+    "createdAt": "2026-10-24T10:15:30.123456"
+  },
+  "message": "Transfer created successfully"
+}
+```
+
+| Status | When |
+| ------ | ---- |
+| `400`  | Missing field, amount `<= 0` or bad precision, or same source and destination (`"Source and destination accounts must be different"`) |
+| `404`  | Either account does not exist or belongs to another user (`"Account not found"`) |
+| `409`  | Source balance is lower than the amount (`"Insufficient balance in source account"`). Nothing is saved. |
+
+Concurrent transfers from the same account are serialized, so the source account can never go below zero through transfers.
+
+### Get Transfer List
+
+```http
+GET /api/transfers?skip=0&limit=10
+```
+
+**Authentication**: Required
+
+Returns the user's transfers, newest first, using the same `paging` object as `GET /api/transaction`. `skip` defaults to `0` and `limit` defaults to `10`. If `skip < 0` or `limit <= 0`, the response is `400`.
+
+---
+
+## 6. Operations
 
 ### Flyway Migration Info
 
@@ -1352,7 +1490,7 @@ The following are referenced in older drafts of this contract but do not exist i
 | `400 Bad Request`            | Invalid request, validation error, or malformed path/query parameter            |
 | `401 Unauthorized`           | Missing/invalid `Authorization` header or unknown token                         |
 | `404 Not Found`               | Resource not found, or not owned by the authenticated user                      |
-| `409 Conflict`                | Duplicate resource (email on register, name+type on category create)           |
+| `409 Conflict`                | Duplicate resource (email on register, name+type on category create), financial setup already completed, insufficient balance for a transfer |
 | `500 Internal Server Error`  | Unexpected server error, including some currently-unhandled validation cases (see Login) |
 
 ---

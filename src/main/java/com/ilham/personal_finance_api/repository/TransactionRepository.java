@@ -97,6 +97,16 @@ public interface TransactionRepository extends JpaRepository<Transaction, String
         @Param("end") LocalDateTime end
     );
 
+    // untuk saldo akun: seluruh transaksi aktif (tanpa batas periode) per type category
+    @Query("""
+        SELECT COALESCE(SUM(t.amount), 0)
+        FROM Transaction t
+        WHERE t.user = :user
+        AND t.category.type = :type
+        AND t.isDeleted = false
+        """)
+    BigDecimal sumAmountByType(@Param("user") User user, @Param("type") String type);
+
     @Query("""
         SELECT new com.ilham.personal_finance_api.dto.TransactionStatisticResponse$TransactionPeriodItemResponse(
             CAST(t.transactionDate AS LocalDate),

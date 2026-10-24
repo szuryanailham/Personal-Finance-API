@@ -269,7 +269,7 @@ void exportDefaultsToAllActiveTransactionsOfUser() throws Exception {
         ), detailNames(workbook));
 
         assertSummary(workbook, "2025-12-31", "2027-01-01",
-            8, "36000000", "800000", "1500000", "33700000");
+            8, "36000000", "800000", "1500000", "36700000");
     }
 }
 
@@ -325,7 +325,7 @@ void exportYearlyUsesCurrentCalendarYear() throws Exception {
         assertEquals(List.of("Gaji Agu", "Makan Agu", "Gaji Sep", "Investasi Sep", "Makan Sep", "Gaji Okt"),
             detailNames(workbook));
         assertSummary(workbook, "2026-01-01", "2026-12-31",
-            6, "27000000", "800000", "1500000", "24700000");
+            6, "27000000", "800000", "1500000", "27700000");
     }
 }
 
@@ -334,7 +334,7 @@ void exportMonthlyUsesCurrentCalendarMonth() throws Exception {
     try (XSSFWorkbook workbook = exportOk("transactions-monthly-20260924.xlsx", "period", "MONTHLY")) {
         assertEquals(List.of("Gaji Sep", "Investasi Sep", "Makan Sep"), detailNames(workbook));
         assertSummary(workbook, "2026-09-01", "2026-09-30",
-            3, "12000000", "500000", "1500000", "10000000");
+            3, "12000000", "500000", "1500000", "13000000");
     }
 }
 

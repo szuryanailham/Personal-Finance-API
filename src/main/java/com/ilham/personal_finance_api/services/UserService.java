@@ -16,6 +16,9 @@ public class UserService {
 @Autowired
 private UserRepository userRepository;
 
+@Autowired
+private AccountService accountService;
+
 
 // Dipanggil setelah OTP registrasi terverifikasi; password sudah di-hash saat sign-up
 @Transactional
@@ -37,6 +40,8 @@ public RegisterUserResponse createVerifiedUser(PendingRegistration pending) {
         // Race condition: email yang sama terdaftar di antara pengecekan dan insert
         throw new DataAlreadyExistedException("Email is already registered");
     }
+
+    accountService.ensureDefaultAccounts(user);
 
      RegisterUserResponse response = new RegisterUserResponse();
      response.setFirstName(user.getFirstName());

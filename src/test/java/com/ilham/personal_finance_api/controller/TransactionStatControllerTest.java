@@ -193,7 +193,8 @@ private void assertSeptemberVsAugust(TransactionStateResponse data) {
     assertStatistic(data.getTotalIncome(), "12100000", "21.00");
     assertStatistic(data.getTotalExpense(), "2000000", "-13.04");
     assertStatistic(data.getTotalSaving(), "1500000", "50.00");
-    assertStatistic(data.getTotalBalance(), "8600000", "28.36");
+    // 11.600.000 vs 8.700.000
+    assertStatistic(data.getTotalBalance(), "11600000", "33.33");
 }
 
 
@@ -258,9 +259,9 @@ void testGetStatExcludeOtherUserTransaction() throws Exception {
 }
 
 @Test
-void testGetStatSavingReducesBalance() throws Exception {
-    // 12.100.000 - 2.000.000 - 1.500.000
-    assertStatistic(getStatOk().getTotalBalance(), "8600000", "28.36");
+void testGetStatSavingAddsToBalance() throws Exception {
+    // 12.100.000 - 2.000.000 + 1.500.000
+    assertStatistic(getStatOk().getTotalBalance(), "11600000", "33.33");
 }
 
 @Test
@@ -355,7 +356,7 @@ void testGetStatYearlyPreviousYearEmpty() throws Exception {
     assertStatistic(data.getTotalIncome(), "27100000", "100.00");
     assertStatistic(data.getTotalExpense(), "4300000", "100.00");
     assertStatistic(data.getTotalSaving(), "2500000", "100.00");
-    assertStatistic(data.getTotalBalance(), "20300000", "100.00");
+    assertStatistic(data.getTotalBalance(), "25300000", "100.00");
 }
 
 @Test
@@ -369,8 +370,8 @@ void testGetStatYearlyComparedToPreviousYear() throws Exception {
     assertStatistic(data.getTotalIncome(), "27100000", "35.50");
     assertStatistic(data.getTotalExpense(), "4300000", "-14.00");
     assertStatistic(data.getTotalSaving(), "2500000", "0.00");
-    // 20.300.000 vs 12.500.000
-    assertStatistic(data.getTotalBalance(), "20300000", "62.40");
+    // 25.300.000 vs 17.500.000
+    assertStatistic(data.getTotalBalance(), "25300000", "44.57");
 }
 
 @Test
@@ -408,7 +409,8 @@ void testGetStatWeekly() throws Exception {
     assertStatistic(data.getTotalIncome(), "1000000", "25.00");
     assertStatistic(data.getTotalExpense(), "200000", "-50.00");
     assertStatistic(data.getTotalSaving(), "300000", "100.00");
-    assertStatistic(data.getTotalBalance(), "500000", "25.00");
+    // 1.100.000 vs 400.000
+    assertStatistic(data.getTotalBalance(), "1100000", "175.00");
 }
 
 @Test
@@ -437,8 +439,8 @@ void testGetStatCustomFullMonth() throws Exception {
     assertStatistic(data.getTotalIncome(), "12100000", "100.00");
     assertStatistic(data.getTotalExpense(), "2000000", "-13.04");
     assertStatistic(data.getTotalSaving(), "1500000", "50.00");
-    // (8.600.000 - (-3.300.000)) / 3.300.000
-    assertStatistic(data.getTotalBalance(), "8600000", "360.61");
+    // (11.600.000 - (-1.300.000)) / 1.300.000
+    assertStatistic(data.getTotalBalance(), "11600000", "992.31");
 }
 
 @Test
@@ -469,8 +471,8 @@ void testGetStatCustomArbitraryPeriod() throws Exception {
     assertStatistic(data.getTotalIncome(), "0", "-100.00");
     assertStatistic(data.getTotalExpense(), "1500000", "87.50");
     assertStatistic(data.getTotalSaving(), "0", "-100.00");
-    // (-1.500.000 - 9.700.000) / 9.700.000
-    assertStatistic(data.getTotalBalance(), "-1500000", "-115.46");
+    // (-1.500.000 - 12.700.000) / 12.700.000
+    assertStatistic(data.getTotalBalance(), "-1500000", "-111.81");
 }
 
 @Test
@@ -485,7 +487,8 @@ void testGetStatCustomCrossMonthPeriod() throws Exception {
     assertStatistic(data.getTotalIncome(), "12000000", "20.00");
     assertStatistic(data.getTotalExpense(), "4300000", "100.00");
     assertStatistic(data.getTotalSaving(), "2500000", "100.00");
-    assertStatistic(data.getTotalBalance(), "5200000", "-48.00");
+    // 10.200.000 vs 10.000.000
+    assertStatistic(data.getTotalBalance(), "10200000", "2.00");
 }
 
 @Test
@@ -499,7 +502,7 @@ void testGetStatCustomPreviousPeriodEmpty() throws Exception {
     assertStatistic(data.getTotalIncome(), "10000000", "100.00");
     assertStatistic(data.getTotalExpense(), "2300000", "100.00");
     assertStatistic(data.getTotalSaving(), "1000000", "100.00");
-    assertStatistic(data.getTotalBalance(), "6700000", "100.00");
+    assertStatistic(data.getTotalBalance(), "8700000", "100.00");
 }
 
 @Test
