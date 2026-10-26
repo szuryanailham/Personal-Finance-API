@@ -212,6 +212,18 @@ void bulkSaveRejectsMissingDate() throws Exception {
 }
 
 @Test
+void bulkSaveRejectsDescriptionTooLong() throws Exception {
+    Map<String, Object> longDescription = validItem();
+    longDescription.put("description", "a".repeat(256));
+
+    bulkSave(List.of(validItem(), longDescription))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors").value("Description must not exceed 255 characters"));
+
+    assertEquals(0, transactionRepository.count());
+}
+
+@Test
 void bulkSaveUnauthorized() throws Exception {
     mockMvc.perform(post(BULK_URL)
             .contentType(MediaType.APPLICATION_JSON)

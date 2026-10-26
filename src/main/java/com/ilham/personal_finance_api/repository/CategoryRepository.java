@@ -18,6 +18,7 @@ public interface CategoryRepository extends JpaRepository<Category, UUID> {
     boolean existsByUserAndNameIgnoreCaseAndTypeAndIsDeletedFalseAndIdNot(User user, String name, String type, UUID id);
     Page<Category> findAllByUserAndIsDeletedFalse(User user, Pageable pageable);
     Optional<Category> findByIdAndUser(UUID id, User user);
+    Optional<Category> findByIdAndUserAndIsDeletedFalse(UUID id, User user);
     List<Category> findAllByUserAndIsDeletedFalseOrderByTypeAscNameAsc(User user);
     List<Category> findAllByIdInAndUserAndIsDeletedFalse(Collection<UUID> ids, User user);
 

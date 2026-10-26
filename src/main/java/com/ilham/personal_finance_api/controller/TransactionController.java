@@ -23,6 +23,7 @@ import com.ilham.personal_finance_api.dto.BulkUpdateTransactionRequest;
 import com.ilham.personal_finance_api.dto.BulkUpdateTransactionResponse;
 import com.ilham.personal_finance_api.dto.CreateTransactionResponse;
 import com.ilham.personal_finance_api.dto.PaginationResponse;
+import com.ilham.personal_finance_api.dto.TransactionCalendarResponse;
 import com.ilham.personal_finance_api.dto.TransactionDatePeriod;
 import com.ilham.personal_finance_api.dto.TransactionExportFilter;
 import com.ilham.personal_finance_api.dto.TransactionExportPeriod;
@@ -39,6 +40,7 @@ import com.ilham.personal_finance_api.dto.exporter.ExportFile;
 import com.ilham.personal_finance_api.dto.importer.ImportResponse;
 import com.ilham.personal_finance_api.services.ImportService;
 import com.ilham.personal_finance_api.services.ImportTemplateService;
+import com.ilham.personal_finance_api.services.TransactionCalendarService;
 import com.ilham.personal_finance_api.services.TransactionExportService;
 import org.springframework.web.multipart.MultipartFile;
 import com.ilham.personal_finance_api.services.TransactionService;
@@ -61,6 +63,9 @@ public class TransactionController {
 
     @Autowired
     private TransactionExportService transactionExportService;
+
+    @Autowired
+    private TransactionCalendarService transactionCalendarService;
 
     private static final String IMPORT_TEMPLATE_FILENAME = "personal-finance-import-template.xlsx";
     private static final MediaType XLSX_MEDIA_TYPE =
@@ -220,6 +225,18 @@ public WebResponse<List<TransactionResponse>> getAll(
 
         WebResponse<TransactionStatisticResponse> response = new WebResponse<>();
         response.setData(statistic);
+        return response;
+    }
+
+    @GetMapping(
+        path = "/api/transaction/calendar",
+        produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public WebResponse<TransactionCalendarResponse> getCalendar(User user, @RequestParam(required = false) String month) {
+        TransactionCalendarResponse calendar = transactionCalendarService.getCalendar(user, month);
+
+        WebResponse<TransactionCalendarResponse> response = new WebResponse<>();
+        response.setData(calendar);
         return response;
     }
 

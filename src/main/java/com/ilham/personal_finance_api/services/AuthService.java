@@ -1,4 +1,5 @@
 package com.ilham.personal_finance_api.services;
+import java.time.Duration;
 import java.util.UUID;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,6 +22,8 @@ import jakarta.transaction.Transactional;
 
 @Service
 public class AuthService {
+
+    private static final Duration TOKEN_TTL = Duration.ofDays(3);
 
     @Autowired
     private UserRepository userRepository;
@@ -86,17 +89,13 @@ public class AuthService {
 
     private TokenResponse issueToken(User user) {
         user.setToken(UUID.randomUUID().toString());
-        user.setTokenExpiredAt(next30Days());
+        user.setTokenExpiredAt(System.currentTimeMillis() + TOKEN_TTL.toMillis());
         userRepository.save(user);
 
         TokenResponse tokenResponse = new TokenResponse();
         tokenResponse.setToken(user.getToken());
         tokenResponse.setExpiredAt(user.getTokenExpiredAt());
         return tokenResponse;
-    }
-
-    private Long next30Days() {
-        return System.currentTimeMillis() + (1000 *16*24*30);
     }
 
 

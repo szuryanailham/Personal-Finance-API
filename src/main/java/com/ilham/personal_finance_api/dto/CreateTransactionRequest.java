@@ -20,6 +20,7 @@ public class CreateTransactionRequest {
     @NotNull(message = "Amount is required")
     private BigDecimal amount;
 
+    @Size(max = 255, message = "Description must not exceed 255 characters")
     private String description;
 
     @NotNull(message = "Category ID is required")

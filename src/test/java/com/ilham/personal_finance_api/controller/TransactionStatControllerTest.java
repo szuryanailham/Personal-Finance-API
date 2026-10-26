@@ -3,6 +3,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.math.BigDecimal;
@@ -183,6 +184,15 @@ private String getStatError(ResultMatcher expectedStatus, MockHttpServletRequest
     return response.getErrors();
 }
 
+// saldo awal lewat endpoint financial setup (PUT /api/financial-setup)
+private void completeFinancialSetup(String token, String balance, String savings) throws Exception {
+    mockMvc.perform(put("/api/financial-setup")
+            .header("Authorization", "Bearer " + token)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"balance\":" + balance + ",\"savings\":" + savings + "}"))
+        .andExpect(status().isOk());
+}
+
 private void assertStatistic(TransactionStateResponse.Statistic statistic, String amount, String changePercentage) {
     assertEquals(0, new BigDecimal(amount).compareTo(statistic.getAmount()), "amount");
     assertEquals(0, new BigDecimal(changePercentage).compareTo(statistic.getChangePercentage()), "changePercentage");
@@ -192,9 +202,10 @@ private void assertStatistic(TransactionStateResponse.Statistic statistic, Strin
 private void assertSeptemberVsAugust(TransactionStateResponse data) {
     assertStatistic(data.getTotalIncome(), "12100000", "21.00");
     assertStatistic(data.getTotalExpense(), "2000000", "-13.04");
-    assertStatistic(data.getTotalSaving(), "1500000", "50.00");
-    // 11.600.000 vs 8.700.000
-    assertStatistic(data.getTotalBalance(), "11600000", "33.33");
+    // saldo SAVINGS akhir Sep 2.500.000 vs akhir Agu 1.000.000
+    assertStatistic(data.getTotalSaving(), "2500000", "150.00");
+    // saldo MAIN akhir Sep 17.800.000 vs akhir Agu 7.700.000
+    assertStatistic(data.getTotalBalance(), "17800000", "131.17");
 }
 
 
@@ -259,18 +270,18 @@ void testGetStatExcludeOtherUserTransaction() throws Exception {
 }
 
 @Test
-void testGetStatSavingAddsToBalance() throws Exception {
-    // 12.100.000 - 2.000.000 + 1.500.000
-    assertStatistic(getStatOk().getTotalBalance(), "11600000", "33.33");
+void testGetStatSavingDoesNotAffectMainBalance() throws Exception {
+    // totalBalance hanya akun MAIN: 10.000.000 - 2.300.000 + 12.100.000 - 2.000.000 (saving tidak ikut)
+    assertStatistic(getStatOk().getTotalBalance(), "17800000", "131.17");
 }
 
 @Test
 void testGetStatNegativePercentage() throws Exception {
     transactionRepository.deleteAll();
-    createTransaction(user, investasi, "1000000", LocalDateTime.of(2026, 8, 10, 10, 0), false);
-    createTransaction(user, investasi, "750000", LocalDateTime.of(2026, 9, 10, 10, 0), false);
+    createTransaction(user, makanan, "1000000", LocalDateTime.of(2026, 8, 10, 10, 0), false);
+    createTransaction(user, makanan, "750000", LocalDateTime.of(2026, 9, 10, 10, 0), false);
 
-    assertStatistic(getStatOk().getTotalSaving(), "750000", "-25.00");
+    assertStatistic(getStatOk().getTotalExpense(), "750000", "-25.00");
 }
 
 @Test
@@ -308,8 +319,8 @@ void testGetStatPreviousBalanceNegative() throws Exception {
     createTransaction(user, tagihan, "3000000", LocalDateTime.of(2026, 8, 11, 10, 0), false);
     createTransaction(user, gaji, "1000000", LocalDateTime.of(2026, 9, 10, 10, 0), false);
 
-    // (1.000.000 - (-2.000.000)) / |-2.000.000|
-    assertStatistic(getStatOk().getTotalBalance(), "1000000", "150.00");
+    // saldo akhir Sep -1.000.000 vs akhir Agu -2.000.000: (-1.000.000 - (-2.000.000)) / |-2.000.000|
+    assertStatistic(getStatOk().getTotalBalance(), "-1000000", "50.00");
 }
 
 @Test
@@ -356,7 +367,7 @@ void testGetStatYearlyPreviousYearEmpty() throws Exception {
     assertStatistic(data.getTotalIncome(), "27100000", "100.00");
     assertStatistic(data.getTotalExpense(), "4300000", "100.00");
     assertStatistic(data.getTotalSaving(), "2500000", "100.00");
-    assertStatistic(data.getTotalBalance(), "25300000", "100.00");
+    assertStatistic(data.getTotalBalance(), "22800000", "100.00");
 }
 
 @Test
@@ -369,9 +380,10 @@ void testGetStatYearlyComparedToPreviousYear() throws Exception {
 
     assertStatistic(data.getTotalIncome(), "27100000", "35.50");
     assertStatistic(data.getTotalExpense(), "4300000", "-14.00");
-    assertStatistic(data.getTotalSaving(), "2500000", "0.00");
-    // 25.300.000 vs 17.500.000
-    assertStatistic(data.getTotalBalance(), "25300000", "44.57");
+    // saldo SAVINGS akhir 2026 5.000.000 vs akhir 2025 2.500.000
+    assertStatistic(data.getTotalSaving(), "5000000", "100.00");
+    // saldo MAIN akhir 2026 37.800.000 vs akhir 2025 15.000.000
+    assertStatistic(data.getTotalBalance(), "37800000", "152.00");
 }
 
 @Test
@@ -409,8 +421,8 @@ void testGetStatWeekly() throws Exception {
     assertStatistic(data.getTotalIncome(), "1000000", "25.00");
     assertStatistic(data.getTotalExpense(), "200000", "-50.00");
     assertStatistic(data.getTotalSaving(), "300000", "100.00");
-    // 1.100.000 vs 400.000
-    assertStatistic(data.getTotalBalance(), "1100000", "175.00");
+    // saldo MAIN 09-25 -3.800.000 vs 09-18 -4.600.000
+    assertStatistic(data.getTotalBalance(), "-3800000", "17.39");
 }
 
 @Test
@@ -420,8 +432,9 @@ void testGetStatWeeklyNoTransactionInFixture() throws Exception {
 
     assertStatistic(data.getTotalIncome(), "0", "0.00");
     assertStatistic(data.getTotalExpense(), "0", "0.00");
-    assertStatistic(data.getTotalSaving(), "0", "0.00");
-    assertStatistic(data.getTotalBalance(), "0", "0.00");
+    // saldo tetap terbawa dari transaksi sebelumnya
+    assertStatistic(data.getTotalSaving(), "2500000", "0.00");
+    assertStatistic(data.getTotalBalance(), "17700000", "0.00");
 }
 
 
@@ -438,9 +451,9 @@ void testGetStatCustomFullMonth() throws Exception {
     // pembanding = 30 hari sebelumnya (08-02 s/d 08-31), gaji 08-01 tidak ikut
     assertStatistic(data.getTotalIncome(), "12100000", "100.00");
     assertStatistic(data.getTotalExpense(), "2000000", "-13.04");
-    assertStatistic(data.getTotalSaving(), "1500000", "50.00");
-    // (11.600.000 - (-1.300.000)) / 1.300.000
-    assertStatistic(data.getTotalBalance(), "11600000", "992.31");
+    assertStatistic(data.getTotalSaving(), "2500000", "150.00");
+    // saldo MAIN 10-01 17.800.000 vs 09-01 7.700.000
+    assertStatistic(data.getTotalBalance(), "17800000", "131.17");
 }
 
 @Test
@@ -454,9 +467,9 @@ void testGetStatCustomSingleDay() throws Exception {
     // pembanding = 09-04
     assertStatistic(data.getTotalIncome(), "0", "0.00");
     assertStatistic(data.getTotalExpense(), "500000", "100.00");
-    assertStatistic(data.getTotalSaving(), "0", "0.00");
-    // defisit -500.000 dari 0
-    assertStatistic(data.getTotalBalance(), "-500000", "-100.00");
+    assertStatistic(data.getTotalSaving(), "2500000", "0.00");
+    // saldo MAIN 09-06 19.200.000 vs 09-05 19.700.000
+    assertStatistic(data.getTotalBalance(), "19200000", "-2.54");
 }
 
 @Test
@@ -470,9 +483,9 @@ void testGetStatCustomArbitraryPeriod() throws Exception {
     // 11 hari, pembanding = 08-30 s/d 09-09
     assertStatistic(data.getTotalIncome(), "0", "-100.00");
     assertStatistic(data.getTotalExpense(), "1500000", "87.50");
-    assertStatistic(data.getTotalSaving(), "0", "-100.00");
-    // (-1.500.000 - 12.700.000) / 12.700.000
-    assertStatistic(data.getTotalBalance(), "-1500000", "-111.81");
+    assertStatistic(data.getTotalSaving(), "2500000", "0.00");
+    // saldo MAIN 09-21 17.700.000 vs 09-10 19.200.000
+    assertStatistic(data.getTotalBalance(), "17700000", "-7.81");
 }
 
 @Test
@@ -487,8 +500,8 @@ void testGetStatCustomCrossMonthPeriod() throws Exception {
     assertStatistic(data.getTotalIncome(), "12000000", "20.00");
     assertStatistic(data.getTotalExpense(), "4300000", "100.00");
     assertStatistic(data.getTotalSaving(), "2500000", "100.00");
-    // 10.200.000 vs 10.000.000
-    assertStatistic(data.getTotalBalance(), "10200000", "2.00");
+    // saldo MAIN 09-16 17.700.000 vs 08-15 10.000.000
+    assertStatistic(data.getTotalBalance(), "17700000", "77.00");
 }
 
 @Test
@@ -502,7 +515,7 @@ void testGetStatCustomPreviousPeriodEmpty() throws Exception {
     assertStatistic(data.getTotalIncome(), "10000000", "100.00");
     assertStatistic(data.getTotalExpense(), "2300000", "100.00");
     assertStatistic(data.getTotalSaving(), "1000000", "100.00");
-    assertStatistic(data.getTotalBalance(), "8700000", "100.00");
+    assertStatistic(data.getTotalBalance(), "7700000", "100.00");
 }
 
 @Test
@@ -516,8 +529,9 @@ void testGetStatCustomCurrentPeriodEmpty() throws Exception {
     // pembanding = 09-02 s/d 10-01
     assertStatistic(data.getTotalIncome(), "0", "-100.00");
     assertStatistic(data.getTotalExpense(), "0", "-100.00");
-    assertStatistic(data.getTotalSaving(), "0", "-100.00");
-    assertStatistic(data.getTotalBalance(), "0", "-100.00");
+    // tidak ada transaksi di periode ini, saldo tidak berubah
+    assertStatistic(data.getTotalSaving(), "2500000", "0.00");
+    assertStatistic(data.getTotalBalance(), "22800000", "0.00");
 }
 
 @Test
@@ -530,8 +544,8 @@ void testGetStatCustomEmptyPeriod() throws Exception {
 
     assertStatistic(data.getTotalIncome(), "0", "0.00");
     assertStatistic(data.getTotalExpense(), "0", "0.00");
-    assertStatistic(data.getTotalSaving(), "0", "0.00");
-    assertStatistic(data.getTotalBalance(), "0", "0.00");
+    assertStatistic(data.getTotalSaving(), "2500000", "0.00");
+    assertStatistic(data.getTotalBalance(), "22800000", "0.00");
 }
 
 @Test
@@ -547,6 +561,78 @@ void testGetStatCustomCrossYear() throws Exception {
 
     // pembanding = 2026-12-01 s/d 2026-12-31
     assertStatistic(data.getTotalIncome(), "1500000", "50.00");
+}
+
+
+// ===================== saldo awal financial setup =====================
+
+@Test
+void testGetStatNewUserShowsOpeningBalances() throws Exception {
+    transactionRepository.deleteAll();
+    completeFinancialSetup("test", "5000000", "2000000");
+
+    TransactionStateResponse data = getStatOk();
+
+    assertStatistic(data.getTotalBalance(), "5000000", "0.00");
+    assertStatistic(data.getTotalSaving(), "2000000", "0.00");
+}
+
+@Test
+void testGetStatIncomeAddsToOpeningMainBalance() throws Exception {
+    transactionRepository.deleteAll();
+    completeFinancialSetup("test", "5000000", "2000000");
+    createTransaction(user, gaji, "1000000", LocalDateTime.of(2026, 9, 10, 10, 0), false);
+
+    TransactionStateResponse data = getStatOk();
+
+    assertStatistic(data.getTotalBalance(), "6000000", "20.00");
+    assertStatistic(data.getTotalSaving(), "2000000", "0.00");
+}
+
+@Test
+void testGetStatExpenseSubtractsFromOpeningMainBalance() throws Exception {
+    transactionRepository.deleteAll();
+    completeFinancialSetup("test", "5000000", "2000000");
+    createTransaction(user, makanan, "500000", LocalDateTime.of(2026, 9, 10, 10, 0), false);
+
+    TransactionStateResponse data = getStatOk();
+
+    assertStatistic(data.getTotalBalance(), "4500000", "-10.00");
+    assertStatistic(data.getTotalSaving(), "2000000", "0.00");
+}
+
+@Test
+void testGetStatSavingAddsToOpeningSavingsOnly() throws Exception {
+    transactionRepository.deleteAll();
+    completeFinancialSetup("test", "5000000", "2000000");
+    createTransaction(user, investasi, "500000", LocalDateTime.of(2026, 9, 10, 10, 0), false);
+
+    TransactionStateResponse data = getStatOk();
+
+    assertStatistic(data.getTotalBalance(), "5000000", "0.00");
+    assertStatistic(data.getTotalSaving(), "2500000", "25.00");
+}
+
+@Test
+void testGetStatExistingTransactionsPlusLaterSetupCountsOpeningOnce() throws Exception {
+    // transaksi lama tetap dihitung, saldo awal ditambahkan tepat satu kali
+    completeFinancialSetup("test", "5000000", "2000000");
+
+    TransactionStateResponse data = getStatOk();
+
+    // MAIN 5.000.000 + 17.800.000 vs 5.000.000 + 7.700.000
+    assertStatistic(data.getTotalBalance(), "22800000", "79.53");
+    // SAVINGS 2.000.000 + 2.500.000 vs 2.000.000 + 1.000.000
+    assertStatistic(data.getTotalSaving(), "4500000", "50.00");
+    assertStatistic(data.getTotalIncome(), "12100000", "21.00");
+    assertStatistic(data.getTotalExpense(), "2000000", "-13.04");
+}
+
+@Test
+void testGetStatExcludeOtherUserOpeningBalance() throws Exception {
+    completeFinancialSetup("testB", "9000000", "9000000");
+
+    assertSeptemberVsAugust(getStatOk());
 }
 
 

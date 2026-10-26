@@ -131,6 +131,30 @@ void testCreateTransactionBadRequest() throws Exception {
     });
 }
 
+@Test
+void testCreateTransactionDescriptionTooLongBadRequest() throws Exception {
+    CreateTransactionRequest request = new CreateTransactionRequest();
+    request.setTransactonName("test");
+    request.setCategoryId(category.getId());
+    request.setAmount(new BigDecimal("5000000"));
+    request.setDescription("a".repeat(256));
+    request.setDate(LocalDate.of(2026, 9, 20));
+
+    mockMvc.perform(
+        post("/api/transaction")
+            .accept(MediaType.APPLICATION_JSON)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(objectMapper.writeValueAsString(request))
+            .header("Authorization", "Bearer test")
+    ).andExpectAll(status().isBadRequest()).andDo(result -> {
+        WebResponse<String> response = objectMapper.readValue(
+                result.getResponse().getContentAsString(),
+                new TypeReference<WebResponse<String>>() {}
+        );
+        assertEquals("Description must not exceed 255 characters", response.getErrors());
+    });
+}
+
 
 @Test
 void testCreateTransactionSuccess() throws Exception {
@@ -196,6 +220,35 @@ void testCreateTransactionSuccess() throws Exception {
             response.getErrors()
     );
 });
+}
+
+@Test
+void testCreateTransactionWithDeletedCategoryNotFound() throws Exception {
+    category.setDeleted(true);
+    categoryRepository.save(category);
+
+    CreateTransactionRequest request = new CreateTransactionRequest();
+    request.setTransactonName("test");
+    request.setCategoryId(category.getId());
+    request.setAmount(new BigDecimal("5000000"));
+    request.setDate(LocalDate.of(2026, 9, 20));
+
+    mockMvc.perform(
+            post("/api/transaction")
+                    .accept(MediaType.APPLICATION_JSON)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(request))
+                    .header("Authorization", "Bearer test")
+    ).andExpectAll(
+            status().isNotFound()
+    ).andDo(result -> {
+        WebResponse<String> response = objectMapper.readValue(
+                result.getResponse().getContentAsString(),
+                new TypeReference<WebResponse<String>>() {}
+        );
+        assertEquals("Category not found", response.getErrors());
+        assertEquals(1, transactionRepository.count());
+    });
 }
 
 @Test
@@ -669,6 +722,28 @@ void tesUpdateTransactionBadRequest() throws Exception {
 }
 
 @Test
+void testUpdateTransactionDescriptionTooLongBadRequest() throws Exception {
+    UpdateTransactionRequest request = new UpdateTransactionRequest();
+    request.setDescription("a".repeat(256));
+
+    mockMvc.perform(
+      patch("/api/transaction/" + transaction.getTransactionCode())
+      .accept(MediaType.APPLICATION_JSON)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(request))
+                    .header("Authorization", "Bearer test")
+    ) .andExpectAll(
+            status().isBadRequest()
+        ).andDo(result -> {
+
+            WebResponse<String> response = objectMapper.readValue(result.getResponse().getContentAsString(),
+             new TypeReference<WebResponse<String>>() {
+            });
+            assertEquals("Description must not exceed 255 characters", response.getErrors());
+        });
+}
+
+@Test
 void testUpdateTransactionNotFound() throws Exception {
     UpdateTransactionRequest request = new UpdateTransactionRequest();
     request.setTransactonName("test After Update 1");
@@ -687,6 +762,30 @@ void testUpdateTransactionNotFound() throws Exception {
              new TypeReference<WebResponse<String>>() {
             });
             assertNotNull(response.getErrors());
+        });
+}
+
+@Test
+void testUpdateTransactionWithDeletedCategoryNotFound() throws Exception {
+    category.setDeleted(true);
+    categoryRepository.save(category);
+
+    UpdateTransactionRequest request = new UpdateTransactionRequest();
+    request.setCategoryId(category.getId());
+
+    mockMvc.perform(
+      patch("/api/transaction/" + transaction.getTransactionCode())
+      .accept(MediaType.APPLICATION_JSON)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(request))
+                    .header("Authorization", "Bearer test")
+    ).andExpectAll(
+            status().isNotFound()
+        ).andDo(result -> {
+            WebResponse<String> response = objectMapper.readValue(result.getResponse().getContentAsString(),
+             new TypeReference<WebResponse<String>>() {
+            });
+            assertEquals("Category not found", response.getErrors());
         });
 }
 

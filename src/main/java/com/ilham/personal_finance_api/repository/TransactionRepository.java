@@ -16,6 +16,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import com.ilham.personal_finance_api.dto.CalendarDailyTypeTotal;
 import com.ilham.personal_finance_api.dto.CategoryStatisticResponse.CategoryStatisticItemResponse;
 import com.ilham.personal_finance_api.dto.TransactionStatisticResponse.TransactionPeriodItemResponse;
 import com.ilham.personal_finance_api.entity.Transaction;
@@ -107,6 +108,21 @@ public interface TransactionRepository extends JpaRepository<Transaction, String
         """)
     BigDecimal sumAmountByType(@Param("user") User user, @Param("type") String type);
 
+    // untuk saldo akun pada suatu waktu: seluruh transaksi aktif sebelum :end (eksklusif)
+    @Query("""
+        SELECT COALESCE(SUM(t.amount), 0)
+        FROM Transaction t
+        WHERE t.user = :user
+        AND t.category.type = :type
+        AND t.isDeleted = false
+        AND t.transactionDate < :end
+        """)
+    BigDecimal sumAmountByTypeBefore(
+        @Param("user") User user,
+        @Param("type") String type,
+        @Param("end") LocalDateTime end
+    );
+
     @Query("""
         SELECT new com.ilham.personal_finance_api.dto.TransactionStatisticResponse$TransactionPeriodItemResponse(
             CAST(t.transactionDate AS LocalDate),
@@ -147,6 +163,29 @@ public interface TransactionRepository extends JpaRepository<Transaction, String
     List<CategoryStatisticItemResponse> getSumAmountPerCategoryByTypeAndPeriod(
         @Param("user") User user,
         @Param("type") String type,
+        @Param("start") LocalDateTime start,
+        @Param("end") LocalDateTime end
+    );
+
+    // untuk kalender: total amount & jumlah transaksi aktif per (tanggal, type category) dalam satu query
+    @Query("""
+        SELECT new com.ilham.personal_finance_api.dto.CalendarDailyTypeTotal(
+            CAST(t.transactionDate AS LocalDate),
+            c.type,
+            COALESCE(SUM(t.amount), 0),
+            COUNT(t)
+        )
+        FROM Transaction t
+        JOIN t.category c
+        WHERE t.user = :user
+        AND t.isDeleted = false
+        AND t.transactionDate >= :start
+        AND t.transactionDate < :end
+        GROUP BY CAST(t.transactionDate AS LocalDate), c.type
+        ORDER BY CAST(t.transactionDate AS LocalDate)
+        """)
+    List<CalendarDailyTypeTotal> sumDailyAmountAndCountByTypeAndPeriod(
+        @Param("user") User user,
         @Param("start") LocalDateTime start,
         @Param("end") LocalDateTime end
     );
