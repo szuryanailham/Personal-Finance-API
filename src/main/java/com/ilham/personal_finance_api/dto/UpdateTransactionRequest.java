@@ -19,6 +19,7 @@ public class UpdateTransactionRequest {
 
     private BigDecimal amount;
 
+    @Size(max = 255, message = "Description must not exceed 255 characters")
     private String description;
 
     private UUID categoryId;

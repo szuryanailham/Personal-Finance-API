@@ -254,6 +254,16 @@ void bulkUpdateRejectsBlankCode() throws Exception {
 }
 
 @Test
+void bulkUpdateRejectsDescriptionTooLong() throws Exception {
+    createTransaction("TRX-001", user, false);
+
+    bulkUpdate("test", request(List.of("TRX-001"), Map.of("description", "a".repeat(256))))
+        .andExpect(status().isBadRequest());
+
+    assertEquals("Ulang tahun", findByCode("TRX-001").getDescription());
+}
+
+@Test
 void bulkUpdateRequiresAuthentication() throws Exception {
     createTransaction("TRX-001", user, false);
 

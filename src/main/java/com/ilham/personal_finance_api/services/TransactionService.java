@@ -25,6 +25,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.ilham.personal_finance_api.dto.AccountType;
 import com.ilham.personal_finance_api.dto.BulkCreateTransactionRequest;
 import com.ilham.personal_finance_api.dto.BulkTransactionItem;
 import com.ilham.personal_finance_api.dto.BulkDeleteTransactionRequest;
@@ -43,6 +44,7 @@ import com.ilham.personal_finance_api.dto.TransactionStatisticResponse;
 import com.ilham.personal_finance_api.dto.TransactionStatisticResponse.TransactionPeriodItemResponse;
 import com.ilham.personal_finance_api.dto.TransactionType;
 import com.ilham.personal_finance_api.dto.UpdateTransactionRequest;
+import com.ilham.personal_finance_api.entity.Account;
 import com.ilham.personal_finance_api.entity.Category;
 import com.ilham.personal_finance_api.entity.Transaction;
 import com.ilham.personal_finance_api.entity.User;
@@ -68,6 +70,9 @@ public class TransactionService {
     private ValidationService validationService;
 
     @Autowired
+    private AccountService accountService;
+
+    @Autowired
     private Clock clock;
 
     // [MAIN] create transaction
@@ -76,7 +81,7 @@ public class TransactionService {
     public CreateTransactionResponse create(User user, CreateTransactionRequest request) {
         validationService.validate(request);
 
-        Category category = categoryRepository.findByIdAndUser(request.getCategoryId(), user)
+        Category category = categoryRepository.findByIdAndUserAndIsDeletedFalse(request.getCategoryId(), user)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Category not found"));
 
         String transactionCode = transactionCodeGenerator.generate();
@@ -276,7 +281,7 @@ public TransactionResponse update(User user, String transactionCode, UpdateTrans
 
     if (request.getCategoryId() != null) {
         Category category = categoryRepository
-            .findByIdAndUser(request.getCategoryId(), user)
+            .findByIdAndUserAndIsDeletedFalse(request.getCategoryId(), user)
             .orElseThrow(() ->
                 new ResponseStatusException(
                     HttpStatus.NOT_FOUND,
@@ -389,17 +394,24 @@ public TransactionResponse get(User user , String transactionCode) {
 
 // [MAIN] get stat transaction
 
-    @Transactional(readOnly = true)
+    // totalIncome / totalExpense = arus dalam periode;
+    // totalBalance = saldo MAIN, totalSaving = saldo SAVINGS (saldo awal financial setup + transaksi) di akhir periode,
+    // dibandingkan dengan saldo di awal periode
+    @Transactional
     public TransactionStateResponse getStat(User user, TransactionStatFilter filter) {
         StatRange range = resolveStatRange(filter);
         PeriodTotals current = sumTotals(user, range.currentStart(), range.currentEnd());
         PeriodTotals last = sumTotals(user, range.lastStart(), range.currentStart());
 
+        List<Account> accounts = accountService.getAccounts(user);
+        Account main = accountService.findByType(accounts, AccountType.MAIN);
+        Account savings = accountService.findByType(accounts, AccountType.SAVINGS);
+
         TransactionStateResponse response = new TransactionStateResponse();
-        response.setTotalBalance(toStatistic(current.balance(), last.balance()));
+        response.setTotalBalance(toStatistic(mainBalanceAsOf(user, main, range.currentEnd()), mainBalanceAsOf(user, main, range.currentStart())));
         response.setTotalIncome(toStatistic(current.income(), last.income()));
         response.setTotalExpense(toStatistic(current.expense(), last.expense()));
-        response.setTotalSaving(toStatistic(current.saving(), last.saving()));
+        response.setTotalSaving(toStatistic(savingsBalanceAsOf(user, savings, range.currentEnd()), savingsBalanceAsOf(user, savings, range.currentStart())));
         return response;
     }
 
@@ -407,10 +419,23 @@ public TransactionResponse get(User user , String transactionCode) {
     private record StatRange(LocalDateTime lastStart, LocalDateTime currentStart, LocalDateTime currentEnd) {}
 
     // [HELPER]
-    private record PeriodTotals(BigDecimal income, BigDecimal expense, BigDecimal saving) {
-        BigDecimal balance() {
-            return income.subtract(expense).subtract(saving);
-        }
+    private record PeriodTotals(BigDecimal income, BigDecimal expense) {}
+
+    // [HELPER] MAIN = saldo awal + INCOME - EXPENSE (transaksi sebelum asOf)
+    private BigDecimal mainBalanceAsOf(User user, Account main, LocalDateTime asOf) {
+        return main.getOpeningBalance()
+            .add(sumAmountBefore(user, TransactionType.INCOME, asOf))
+            .subtract(sumAmountBefore(user, TransactionType.EXPENSE, asOf));
+    }
+
+    // [HELPER] SAVINGS = saldo awal + SAVING (transaksi sebelum asOf)
+    private BigDecimal savingsBalanceAsOf(User user, Account savings, LocalDateTime asOf) {
+        return savings.getOpeningBalance().add(sumAmountBefore(user, TransactionType.SAVING, asOf));
+    }
+
+    // [HELPER]
+    private BigDecimal sumAmountBefore(User user, TransactionType type, LocalDateTime end) {
+        return transactionRepository.sumAmountByTypeBefore(user, type.name(), end);
     }
 
     // [HELPER]
@@ -456,8 +481,7 @@ public TransactionResponse get(User user , String transactionCode) {
     private PeriodTotals sumTotals(User user, LocalDateTime start, LocalDateTime end) {
         return new PeriodTotals(
             sumAmount(user, TransactionType.INCOME, start, end),
-            sumAmount(user, TransactionType.EXPENSE, start, end),
-            sumAmount(user, TransactionType.SAVING, start, end)
+            sumAmount(user, TransactionType.EXPENSE, start, end)
         );
     }
 

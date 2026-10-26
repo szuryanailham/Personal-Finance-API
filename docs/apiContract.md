@@ -210,9 +210,9 @@ Public
 | Field       | Type   | Description                                     |
 | ----------- | ------ | ------------------------------------------------ |
 | `token`     | String | Opaque bearer token, not a JWT                   |
-| `expiredAt` | Long   | Epoch millis; **not enforced** on subsequent calls |
+| `expiredAt` | Long   | Epoch millis, 3 days after login; **not enforced** on subsequent calls |
 
-> Known issues to be aware of when integrating: the success `message` says `"Register successfully"` (copy-paste bug, should say "Login successfully"), and `expiredAt` is not actually ~30 days out as the field name implies — the offset is computed incorrectly server-side.
+> Known issue to be aware of when integrating: the success `message` says `"Register successfully"` (copy-paste bug, should say "Login successfully").
 
 **Error Response**
 
@@ -645,7 +645,7 @@ Required
 | ----------------- | ---------- | ------------------------------------------------------ |
 | `transactonName`  | String     | Required, max 100 chars — **field name is misspelled in the API, not "transactionName"** |
 | `amount`          | BigDecimal | Required — no positive/non-zero constraint is enforced  |
-| `description`     | String     | Optional                                               |
+| `description`     | String     | Optional, max 255 chars                                |
 | `categoryId`      | UUID       | Required — must belong to the authenticated user        |
 | `date`            | Date (`YYYY-MM-DD`) | Required                                       |
 
@@ -898,7 +898,7 @@ Required
 | ----------------- | ---------- | ------------------------------------------------ |
 | `transactonName`  | String     | Optional, max 100 chars if provided             |
 | `amount`          | BigDecimal | Optional                                         |
-| `description`     | String     | Optional                                         |
+| `description`     | String     | Optional, max 255 chars if provided              |
 | `categoryId`      | UUID       | Optional — must belong to the authenticated user if provided |
 | `date`            | Date (`YYYY-MM-DD`) | Optional                               |
 
@@ -1060,7 +1060,7 @@ Required
 | `transactionName`  | String              | Optional, max 100 chars                |
 | `categoryId`       | UUID                | Optional, active category of user      |
 | `date`             | Date (`YYYY-MM-DD`) | Optional                               |
-| `description`      | String              | Optional                               |
+| `description`      | String              | Optional, max 255 chars                |
 
 **Success Response**
 
@@ -1077,7 +1077,7 @@ Required
 
 **Error Response**
 
-**HTTP 400 Bad Request** — empty list, more than 500 codes, blank code, name > 100 chars, or no field to update
+**HTTP 400 Bad Request** — empty list, more than 500 codes, blank code, name > 100 chars, description > 255 chars, or no field to update
 
 **HTTP 401 Unauthorized**
 
@@ -1120,7 +1120,11 @@ Authorization: Bearer <token>
 
 - Only the authenticated user's transactions with `isDeleted = false` are counted.
 - Type is taken from the transaction's category (`INCOME` / `EXPENSE` / `SAVING`).
-- `totalBalance.amount = income - expense` (saving is **not** subtracted).
+- `totalIncome` / `totalExpense` are flows inside the period.
+- `totalBalance.amount` = balance of the `MAIN` account at the end of the period = opening balance (financial setup) + all `INCOME` − all `EXPENSE` before the period end. It is **not** MAIN + SAVINGS.
+- `totalSaving.amount` = balance of the `SAVINGS` account at the end of the period = opening savings (financial setup) + all `SAVING` before the period end.
+- For `totalBalance` / `totalSaving`, the "previous" value used by `changePercentage` is the account balance at the start of the period.
+- Transfers between accounts are not reflected in these statistics.
 - Every `amount` has a floor of `0`. A negative balance (expense > income) comes back as `0`, and its `changePercentage` is calculated from that `0`. The previous month's value is not floored.
 - Comparison period: the full calendar month before the month of `startDate` (e.g. `startDate=2026-09-10` compares against `2026-08-01`..`2026-08-31`).
 - `changePercentage = (current - previous) * 100 / |previous|`, rounded `HALF_UP` to 2 decimals.
@@ -1159,10 +1163,10 @@ Authorization: Bearer <token>
 
 | Field          | Type   | Description                         |
 | -------------- | ------ | ----------------------------------- |
-| `totalBalance` | Object | Income minus expense for the period |
+| `totalBalance` | Object | MAIN account balance at period end (opening + income − expense) |
 | `totalIncome`  | Object | Total `INCOME` for the period       |
 | `totalExpense` | Object | Total `EXPENSE` for the period      |
-| `totalSaving`  | Object | Total `SAVING` for the period       |
+| `totalSaving`  | Object | SAVINGS account balance at period end (opening + saving) |
 
 Each summary object:
 
@@ -1294,7 +1298,267 @@ Each item:
 
 ---
 
-## 4. Operations
+### Get Transaction Calendar (Monthly)
+
+Returns monthly totals and per-day summaries of `INCOME`, `EXPENSE` and `SAVING` transactions for the calendar view. Only days that have at least one transaction are returned.
+
+**Endpoint**
+
+```http
+GET /api/transaction/calendar?month=2026-10
+```
+
+**Authentication**
+
+```text
+Required
+```
+
+**Query Parameters**
+
+| Parameter | Type   | Required | Description                                    |
+| --------- | ------ | -------- | ---------------------------------------------- |
+| `month`   | String | Yes      | The month in strict `YYYY-MM` format, e.g. `2026-10` |
+
+**Rules**
+
+- `startDate` is the first day of `month` and `endDate` is its last day (leap years are handled, e.g. `2028-02` ends on `2028-02-29`).
+- Transactions are grouped by their transaction date (`transactionDate`), not by when they were created.
+- Only the authenticated user's transactions with `isDeleted = false` are counted.
+- `totals` and every day's `summaries` always contain the three types in this order: `INCOME`, `EXPENSE`, `SAVING`. A type with no transactions has `amount: 0` and `count: 0`.
+- `days` only includes dates with at least one transaction, ordered by date ascending. A month with no transactions returns `days: []` and all totals at `0`.
+- `amount` is always a positive sum; the type tells whether it is income, expense or saving.
+
+**Success Response**
+
+**HTTP 200 OK**
+
+```json
+{
+  "data": {
+    "month": "2026-10",
+    "startDate": "2026-10-01",
+    "endDate": "2026-10-31",
+    "totals": [
+      { "type": "INCOME", "amount": 8500000.00, "count": 2 },
+      { "type": "EXPENSE", "amount": 3245000.00, "count": 41 },
+      { "type": "SAVING", "amount": 1500000.00, "count": 2 }
+    ],
+    "days": [
+      {
+        "date": "2026-10-01",
+        "summaries": [
+          { "type": "INCOME", "amount": 0, "count": 0 },
+          { "type": "EXPENSE", "amount": 245000.00, "count": 2 },
+          { "type": "SAVING", "amount": 0, "count": 0 }
+        ]
+      },
+      {
+        "date": "2026-10-25",
+        "summaries": [
+          { "type": "INCOME", "amount": 8000000.00, "count": 1 },
+          { "type": "EXPENSE", "amount": 120000.00, "count": 3 },
+          { "type": "SAVING", "amount": 500000.00, "count": 1 }
+        ]
+      }
+    ]
+  },
+  "message": null,
+  "errors": null,
+  "paging": null
+}
+```
+
+| Field       | Type                | Description                                      |
+| ----------- | ------------------- | ------------------------------------------------ |
+| `month`     | String (`YYYY-MM`)  | The requested month                              |
+| `startDate` | Date (`YYYY-MM-DD`) | First day of the month, inclusive                |
+| `endDate`   | Date (`YYYY-MM-DD`) | Last day of the month, inclusive                 |
+| `totals`    | Array               | Monthly summary per type (`INCOME`, `EXPENSE`, `SAVING`) |
+| `days`      | Array               | One entry per date that has transactions         |
+
+Each `days` item:
+
+| Field       | Type                | Description                                      |
+| ----------- | ------------------- | ------------------------------------------------ |
+| `date`      | Date (`YYYY-MM-DD`) | The day                                          |
+| `summaries` | Array               | Summary per type for that day (`INCOME`, `EXPENSE`, `SAVING`) |
+
+Each summary (in `totals` and `summaries`):
+
+| Field    | Type       | Description                              |
+| -------- | ---------- | ---------------------------------------- |
+| `type`   | String     | `INCOME`, `EXPENSE` or `SAVING`          |
+| `amount` | BigDecimal | Sum of transaction amounts of that type  |
+| `count`  | Number     | Number of transactions of that type      |
+
+**Error Response**
+
+**HTTP 400 Bad Request**: `month` is not in `YYYY-MM` format (e.g. `2026-13`, `2026-1`, `10-2026`)
+
+```json
+{
+  "data": null,
+  "message": null,
+  "errors": "month harus berformat YYYY-MM",
+  "paging": null
+}
+```
+
+**HTTP 400 Bad Request**: `month` is missing or empty
+
+```json
+{
+  "data": null,
+  "message": null,
+  "errors": "month wajib diisi",
+  "paging": null
+}
+```
+
+**HTTP 401 Unauthorized**: missing or invalid token
+
+---
+
+## 4. Financial Setup & Accounts
+
+Every user has exactly two accounts: `MAIN` ("Main Balance") and `SAVINGS` ("Savings"). They are created when a user registers (manual sign-up or Google). Accounts that are missing for older users are created the first time they are needed.
+
+Balance rules:
+
+- `openingBalance` is the money the user already had when they started using the app. It is set once through the initial setup and is never changed by transactions.
+- The account of a transaction is decided by its category type. Clients never choose it:
+  - `INCOME` and `EXPENSE` → `MAIN`
+  - `SAVING` → `SAVINGS`. A saving adds money to `SAVINGS` and does **not** take it from `MAIN`.
+- `MAIN.currentBalance = openingBalance + INCOME − EXPENSE + transfers in − transfers out`
+- `SAVINGS.currentBalance = openingBalance + SAVING + transfers in − transfers out`
+- Changing a category's type moves all of its transactions to the matching account. Balances are calculated when they are read, so they update immediately.
+- To spend savings, transfer money from `SAVINGS` to `MAIN` (see Transfers).
+- `totalBalance` is the sum of all accounts' `currentBalance`. Transfers never change it.
+- Opening balances and transfers are **not** income, expense, or saving. They never appear as income/expense/saving in `/api/transaction/stat` (opening balances are included in its `totalBalance` / `totalSaving` account balances), `/api/transaction/statistic`, `/api/categories/statistic`, or the export.
+
+### Get Financial Setup
+
+```http
+GET /api/financial-setup
+```
+
+**Authentication**: Required
+
+**HTTP 200 OK**
+
+```json
+{
+  "data": {
+    "setupCompleted": false,
+    "accounts": [
+      { "id": "uuid", "accountType": "MAIN", "name": "Main Balance", "openingBalance": 0, "currentBalance": 0 },
+      { "id": "uuid", "accountType": "SAVINGS", "name": "Savings", "openingBalance": 0, "currentBalance": 0 }
+    ],
+    "totalBalance": 0
+  }
+}
+```
+
+### Complete Financial Setup
+
+Sets the opening balances. This can be done **once** per user.
+
+```http
+PUT /api/financial-setup
+```
+
+**Authentication**: Required
+
+| Field     | Type   | Required | Description                                          |
+| --------- | ------ | -------- | ---------------------------------------------------- |
+| `balance` | Number | No       | Opening balance of `MAIN`; omitted or `null` → `0`   |
+| `savings` | Number | No       | Opening balance of `SAVINGS`; omitted or `null` → `0` |
+
+Both values must be `>= 0` with at most 13 integer digits and 2 decimals. An empty body (or no body) completes the setup with both balances set to `0`.
+
+```json
+{ "balance": 5000000, "savings": 2000000 }
+```
+
+**HTTP 200 OK**: same shape as Get Financial Setup, with `setupCompleted: true`.
+
+**HTTP 400 Bad Request**: negative value or invalid precision, e.g. `"errors": "Balance must not be negative"`
+
+**HTTP 409 Conflict**: `"errors": "Financial setup has already been completed"`. This is returned when the setup was already completed or skipped. Opening balances are never overwritten.
+
+### Skip Financial Setup
+
+```http
+POST /api/financial-setup/skip
+```
+
+**Authentication**: Required
+
+Marks the setup as completed and leaves both opening balances at `0`. The call is idempotent: calling it again, or calling it after the setup is already completed, returns `200` with the current state and changes nothing.
+
+---
+
+## 5. Transfers
+
+### Create Transfer
+
+Moves money between the authenticated user's own `MAIN` and `SAVINGS` accounts. A transfer is not income or expense.
+
+```http
+POST /api/transfers
+```
+
+**Authentication**: Required
+
+| Field           | Type   | Required | Description                                  |
+| --------------- | ------ | -------- | -------------------------------------------- |
+| `fromAccountId` | UUID   | Yes      | Source account (must belong to the user)     |
+| `toAccountId`   | UUID   | Yes      | Destination account (must differ from source) |
+| `amount`        | Number | Yes      | `> 0`, at most 13 integer digits and 2 decimals |
+| `note`          | String | No       | Max 255 characters                           |
+
+```json
+{ "fromAccountId": "uuid-savings", "toAccountId": "uuid-main", "amount": 500000, "note": "Move savings to main" }
+```
+
+**HTTP 200 OK**
+
+```json
+{
+  "data": {
+    "id": "uuid",
+    "fromAccountId": "uuid-savings",
+    "toAccountId": "uuid-main",
+    "amount": 500000,
+    "note": "Move savings to main",
+    "createdAt": "2026-10-24T10:15:30.123456"
+  },
+  "message": "Transfer created successfully"
+}
+```
+
+| Status | When |
+| ------ | ---- |
+| `400`  | Missing field, amount `<= 0` or bad precision, or same source and destination (`"Source and destination accounts must be different"`) |
+| `404`  | Either account does not exist or belongs to another user (`"Account not found"`) |
+| `409`  | Source balance is lower than the amount (`"Insufficient balance in source account"`). Nothing is saved. |
+
+Concurrent transfers from the same account are serialized, so the source account can never go below zero through transfers.
+
+### Get Transfer List
+
+```http
+GET /api/transfers?skip=0&limit=10
+```
+
+**Authentication**: Required
+
+Returns the user's transfers, newest first, using the same `paging` object as `GET /api/transaction`. `skip` defaults to `0` and `limit` defaults to `10`. If `skip < 0` or `limit <= 0`, the response is `400`.
+
+---
+
+## 6. Operations
 
 ### Flyway Migration Info
 
@@ -1352,7 +1616,7 @@ The following are referenced in older drafts of this contract but do not exist i
 | `400 Bad Request`            | Invalid request, validation error, or malformed path/query parameter            |
 | `401 Unauthorized`           | Missing/invalid `Authorization` header or unknown token                         |
 | `404 Not Found`               | Resource not found, or not owned by the authenticated user                      |
-| `409 Conflict`                | Duplicate resource (email on register, name+type on category create)           |
+| `409 Conflict`                | Duplicate resource (email on register, name+type on category create), financial setup already completed, insufficient balance for a transfer |
 | `500 Internal Server Error`  | Unexpected server error, including some currently-unhandled validation cases (see Login) |
 
 ---

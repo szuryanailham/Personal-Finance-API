@@ -30,6 +30,7 @@ public class BulkTransactionItem {
     @Positive(message = "Amount must be greater than 0")
     private BigDecimal amount;
 
+    @Size(max = 255, message = "Description must not exceed 255 characters")
     private String description;
 
     // hanya informasi dari preview; category ditentukan oleh categoryId

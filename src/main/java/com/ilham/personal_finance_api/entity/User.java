@@ -1,4 +1,5 @@
 package com.ilham.personal_finance_api.entity;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -40,6 +41,10 @@ public class User {
 
     @Column(name = "token_expired_at")
     private Long tokenExpiredAt;
+
+    // null = setup saldo awal belum diselesaikan / dilewati
+    @Column(name = "financial_setup_completed_at")
+    private LocalDateTime financialSetupCompletedAt;
 
 
     @OneToMany(mappedBy = "user")
