@@ -3,115 +3,55 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="color-scheme" content="light dark" />
-  <meta name="supported-color-schemes" content="light dark" />
-  <title>Kode Verifikasi Registrasi</title>
-  <style>
-    body { margin: 0; padding: 0; -webkit-text-size-adjust: 100%; }
-    table { border-collapse: collapse; }
-
-    @media only screen and (max-width: 620px) {
-      .container { width: 100% !important; }
-      .px { padding-left: 20px !important; padding-right: 20px !important; }
-      .otp-code { font-size: 28px !important; letter-spacing: 8px !important; }
-    }
-
-    @media (prefers-color-scheme: dark) {
-      .bg-body { background-color: #0f172a !important; }
-      .bg-card { background-color: #1e293b !important; }
-      .text-main { color: #f1f5f9 !important; }
-      .text-muted { color: #94a3b8 !important; }
-      .otp-box { background-color: #0f172a !important; border-color: #334155 !important; }
-    }
-  </style>
+  <title>Verifikasi Email Kamu</title>
 </head>
-<body class="bg-body" style="margin:0; padding:0; background-color:#f1f5f9; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-
-  <!-- Teks preview (tampil di inbox, disembunyikan di badan email) -->
-  <div style="display:none; max-height:0; overflow:hidden; opacity:0;">
-    Kode verifikasi Anda: {{otp}}. Berlaku {{expiry_minutes}} menit.
-  </div>
-
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="bg-body" style="background-color:#f1f5f9;">
+<body style="margin:0; padding:0; background-color:#F3F6F2; font-family:Arial, Helvetica, sans-serif; -webkit-text-size-adjust:100%;">
+  <div style="display:none; max-height:0; overflow:hidden; opacity:0;">Verifikasi email kamu untuk mulai mengatur keuangan bersama {{app_name}}.</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%; border-collapse:collapse; background-color:#F3F6F2;">
     <tr>
-      <td align="center" style="padding:40px 16px;">
-
-        <table role="presentation" width="560" cellpadding="0" cellspacing="0" class="container bg-card"
-               style="width:560px; max-width:560px; background-color:#ffffff; border-radius:12px; overflow:hidden;">
-
-          <!-- Header -->
+      <td align="center" style="padding:32px 16px;">
+        <!-- Outlook uses a fixed maximum width; other clients use the fluid table below. -->
+        <!--[if mso]><table role="presentation" width="560" cellpadding="0" cellspacing="0"><tr><td><![endif]-->
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%; max-width:560px; border-spacing:0; background-color:#FFFFFF; border-radius:16px;">
           <tr>
-            <td class="px" style="padding:32px 40px 0 40px;">
-              <span class="text-main" style="font-size:18px; font-weight:700; color:#0f172a;">{{app_name}}</span>
+            <td align="center" style="padding:32px 24px 24px;">
+              <img src="https://ik.imagekit.io/fuzi6tpfu/artoku/artoku%20logo.png" width="144" alt="Logo Artoku" style="display:block; width:144px; max-width:100%; height:auto; border:0;" />
             </td>
           </tr>
-
-          <!-- Konten -->
           <tr>
-            <td class="px" style="padding:32px 40px 8px 40px;">
-              <h1 class="text-main" style="margin:0 0 16px 0; font-size:22px; line-height:30px; font-weight:700; color:#0f172a;">
-                Verifikasi email Anda
-              </h1>
-              <p class="text-muted" style="margin:0 0 24px 0; font-size:15px; line-height:24px; color:#475569;">
-                Halo {{name}}, gunakan kode berikut untuk menyelesaikan pendaftaran akun Anda di {{app_name}}.
-              </p>
+            <td style="padding:0 24px;">
+              <h1 style="margin:0 0 20px; color:#183D2A; font-size:26px; line-height:34px; font-weight:700; text-align:center;">Verifikasi Email Kamu</h1>
+              <p style="margin:0 0 12px; color:#183D2A; font-size:16px; line-height:26px;">Halo {{name}},</p>
+              <p style="margin:0 0 24px; color:#68776B; font-size:16px; line-height:26px;">Selamat datang di {{app_name}}! Verifikasi alamat email kamu dengan kode berikut untuk menyelesaikan pendaftaran dan mulai mengatur keuanganmu.</p>
             </td>
           </tr>
-
-          <!-- Kode OTP -->
           <tr>
-            <td class="px" align="center" style="padding:0 40px;">
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+            <td style="padding:0 24px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%; border-spacing:0;">
                 <tr>
-                  <td align="center" class="otp-box"
-                      style="background-color:#f8fafc; border:1px dashed #cbd5e1; border-radius:10px; padding:24px 16px;">
-                    <span class="otp-code text-main"
-                          style="font-family:'SFMono-Regular', Consolas, 'Courier New', monospace; font-size:34px; font-weight:700; letter-spacing:12px; color:#0f172a;">
-                      {{otp}}
-                    </span>
+                  <td align="center" style="padding:24px 8px; background-color:#F0F7F0; border-radius:12px;">
+                    <p style="margin:0 0 12px; color:#68776B; font-size:14px; line-height:20px;">Kode verifikasi kamu</p>
+                    <p dir="ltr" style="margin:0; color:#24834A; font-family:Consolas, 'Courier New', monospace; font-size:32px; line-height:44px; font-weight:700; letter-spacing:6px;">{{otp}}</p>
                   </td>
                 </tr>
               </table>
+              <p style="margin:16px 0 24px; color:#68776B; font-size:14px; line-height:22px; text-align:center;">Kode berlaku selama <strong style="color:#183D2A;">{{expiry_minutes}} menit</strong> dan hanya dapat digunakan satu kali.</p>
             </td>
           </tr>
-
-          <!-- Info masa berlaku -->
           <tr>
-            <td class="px" style="padding:24px 40px 8px 40px;">
-              <p class="text-muted" style="margin:0 0 12px 0; font-size:14px; line-height:22px; color:#475569;">
-                Kode ini berlaku selama <strong class="text-main" style="color:#0f172a;">{{expiry_minutes}} menit</strong>
-                dan hanya bisa dipakai satu kali.
-              </p>
-              <p class="text-muted" style="margin:0; font-size:14px; line-height:22px; color:#475569;">
-                Jangan berikan kode ini kepada siapa pun, termasuk pihak yang mengaku dari {{app_name}}.
-              </p>
+            <td style="padding:0 24px 32px;">
+              <p style="margin:0 0 16px; color:#183D2A; font-size:14px; line-height:23px;"><strong>Jaga keamanan akunmu.</strong> Jangan bagikan kode ini kepada siapa pun, termasuk pihak yang mengaku dari {{app_name}}.</p>
+              <p style="margin:0; color:#68776B; font-size:14px; line-height:23px;">Jika kamu tidak meminta kode verifikasi ini, abaikan email ini. Akun tidak akan dibuat tanpa verifikasi kamu.</p>
             </td>
           </tr>
-
-          <!-- Peringatan -->
           <tr>
-            <td class="px" style="padding:24px 40px 32px 40px;">
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td style="background-color:#fef3c7; border-left:4px solid #f59e0b; border-radius:6px; padding:12px 16px; font-size:13px; line-height:20px; color:#92400e;">
-                    Tidak merasa mendaftar? Abaikan email ini, akun tidak akan dibuat tanpa kode di atas.
-                  </td>
-                </tr>
-              </table>
+            <td align="center" style="padding:24px; border-top:1px solid #F0F7F0;">
+              <p style="margin:0 0 8px; color:#24834A; font-size:15px; line-height:24px; font-weight:700;">Make Money Make Sense.</p>
+              <p style="margin:0; color:#68776B; font-size:12px; line-height:20px;">&copy; {{year}} {{app_name}}. All rights reserved.</p>
             </td>
           </tr>
-
-          <!-- Footer -->
-          <tr>
-            <td class="px" style="padding:20px 40px; border-top:1px solid #e2e8f0;">
-              <p class="text-muted" style="margin:0; font-size:12px; line-height:18px; color:#94a3b8;">
-                Email ini dikirim otomatis, mohon tidak dibalas.<br />
-                &copy; {{year}} {{app_name}}. All rights reserved.
-              </p>
-            </td>
-          </tr>
-
         </table>
+        <!--[if mso]></td></tr></table><![endif]-->
       </td>
     </tr>
   </table>
