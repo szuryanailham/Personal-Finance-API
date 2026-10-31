@@ -7,9 +7,7 @@ import java.time.Duration;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpStatus;
 import org.springframework.test.util.ReflectionTestUtils;
-import org.springframework.web.server.ResponseStatusException;
 
 import com.ilham.personal_finance_api.config.OtpProperties;
 import com.ilham.personal_finance_api.dto.GoogleLoginRequest;
@@ -42,17 +40,34 @@ class AuthProviderTest {
     }
 
     @Test
-    void googleCannotAuthenticatePasswordAccount() {
+    void googleAuthenticatesLegacyAccountWithoutChangingCredentialsOrProfile() {
         AuthService service = auth();
         User existing = new User();
-        existing.setToken("unchanged");
+        existing.setFirstName("Original");
+        existing.setPassword("existing-password-hash");
+        existing.setToken("old-token");
         when(users.findByEmail("user@example.com")).thenReturn(Optional.of(existing));
-        ResponseStatusException error = assertThrows(ResponseStatusException.class,
-                () -> service.loginWithGoogle(request()));
-        assertEquals(HttpStatus.CONFLICT, error.getStatusCode());
-        assertEquals("unchanged", existing.getToken());
-        verify(users, never()).save(any());
+
+        var response = service.loginWithGoogle(request());
+
+        assertNotNull(response.getToken());
+        assertNotEquals("old-token", response.getToken());
+        assertEquals(existing.getToken(), response.getToken());
+        assertTrue(response.getExpiredAt() > System.currentTimeMillis());
+        assertEquals(AuthProvider.PASSWORD, existing.getAuthProvider());
+        assertEquals("existing-password-hash", existing.getPassword());
+        assertEquals("Original", existing.getFirstName());
+        verify(users).save(existing);
         verify(users, never()).saveAndFlush(any());
+        verifyNoInteractions(accounts);
+    }
+
+    @Test
+    void invalidGoogleTokenCannotAuthenticateExistingAccount() {
+        AuthService service = auth();
+        when(verifier.verify("token")).thenThrow(new IllegalArgumentException("invalid token"));
+        assertThrows(IllegalArgumentException.class, () -> service.loginWithGoogle(request()));
+        verifyNoInteractions(users, accounts);
     }
 
     @Test

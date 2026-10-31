@@ -85,7 +85,7 @@ public class GoogleLoginControllerTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void testGoogleLoginRejectsPasswordAccountByEmail() throws Exception {
+    void testGoogleLoginReusesLegacyAccountAndPreservesPasswordLogin() throws Exception {
         String passwordHash = BCrypt.hashpw("test12345", BCrypt.gensalt());
         User existing = new User();
         existing.setFirstName("Existing");
@@ -96,12 +96,22 @@ public class GoogleLoginControllerTest extends AbstractIntegrationTest {
 
         when(googleTokenVerifier.verify(ID_TOKEN)).thenReturn(new GoogleUserInfo(EMAIL, "Budi", "Santoso"));
 
-        googleLogin(ID_TOKEN).andExpect(status().isConflict());
+        googleLogin(ID_TOKEN)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.token").isNotEmpty());
 
         assertEquals(1, userRepository.count());
         User user = userRepository.findByEmail(EMAIL).orElseThrow();
         assertEquals("Existing", user.getFirstName(), "existing profile must not be overwritten");
         assertEquals(passwordHash, user.getPassword(), "existing password must stay usable");
+        assertEquals(existing.getId(), user.getId());
+        mockMvc.perform(get("/api/users/me").header("Authorization", "Bearer " + user.getToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.email").value(EMAIL));
+        mockMvc.perform(post("/api/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(Map.of("email", EMAIL, "password", "test12345"))))
+                .andExpect(status().isOk());
     }
 
     @Test

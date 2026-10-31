@@ -101,17 +101,19 @@ Not yet specified.
 
 ### Authentication methods and email uniqueness
 
-An email belongs to one authentication method: email/password or Google. Manual
-registration rejects any registered email with HTTP 409. Google Sign-In returns
-HTTP 409 when the email belongs to a password account; users must sign in with
-their original method. Returning Google users can sign in normally. Email lookup
-and database uniqueness are case-insensitive, including concurrent registrations
-and accounts created while a manual-registration OTP is pending.
+Manual registration rejects any registered email with HTTP 409. Google Sign-In
+verifies the ID token and email, then reuses the account with the same email,
+regardless of its recorded authentication provider. This preserves Google login
+for legacy accounts and allows existing password users to sign in with Google.
+Existing profiles, passwords, providers, and financial data are preserved;
+password login remains available for password accounts. New Google users are
+created with provider `GOOGLE`. Email lookup and database uniqueness are
+case-insensitive, including concurrent registrations and accounts created while
+a manual-registration OTP is pending.
 
 Migration V7 adds `users.auth_provider` (`PASSWORD` or `GOOGLE`). Existing rows
 are assigned `PASSWORD` because the old schema did not record the provider.
-Before rollout, identify known Google-only accounts using trusted operational
-records and set their provider to `GOOGLE`; it cannot be inferred reliably from
-the password hash. Previously linked accounts default to password authentication.
-Resolve any existing emails differing only by case before applying V7; its unique
-index deliberately fails rather than merging or deleting accounts.
+These accounts can still sign in with a verified Google token; no provider
+backfill is required. Resolve any existing emails differing only by case before
+applying V7; its unique index deliberately fails rather than merging or deleting
+accounts.
