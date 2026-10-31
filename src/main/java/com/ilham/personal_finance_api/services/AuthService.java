@@ -67,11 +67,9 @@ public class AuthService {
         User user = userRepository.findByEmail(email)
                 .orElseGet(() -> createGoogleUser(
                         new GoogleUserInfo(email, googleUser.firstName(), googleUser.lastName())));
-        if (user.getAuthProvider() != AuthProvider.GOOGLE) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "Email is already registered with email and password. Please sign in using that method.");
-        }
-
+        // Legacy Google users were backfilled as PASSWORD by V7. A verified
+        // Google email reuses the existing account, as before provider tracking.
+        // Keep its provider and password so existing password login still works.
         return issueToken(user);
     }
 
