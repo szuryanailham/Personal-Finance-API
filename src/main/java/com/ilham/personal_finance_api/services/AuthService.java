@@ -1,6 +1,7 @@
 package com.ilham.personal_finance_api.services;
 import java.time.Duration;
 import java.util.UUID;
+import java.util.Locale;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -9,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.ilham.personal_finance_api.entity.User;
+import com.ilham.personal_finance_api.entity.AuthProvider;
 import com.ilham.personal_finance_api.dto.GoogleLoginRequest;
 import com.ilham.personal_finance_api.dto.LoginUserRequest;
 import com.ilham.personal_finance_api.dto.TokenResponse;
@@ -47,22 +49,28 @@ public class AuthService {
             "Username or password wrong"
         ));
 
-        if(BCrypt.checkpw(request.getPassword(), user.getPassword())) {
+        if(user.getAuthProvider() == AuthProvider.PASSWORD
+                && BCrypt.checkpw(request.getPassword(), user.getPassword())) {
             return issueToken(user);
         } else {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Username or Password Wrong");
         }
     }
 
-    // Email Google sudah terverifikasi, jadi akun dengan email yang sama langsung ditautkan
     @Transactional
     public TokenResponse loginWithGoogle(GoogleLoginRequest request) {
         validationService.validate(request);
 
         GoogleUserInfo googleUser = googleTokenVerifier.verify(request.getIdToken());
 
-        User user = userRepository.findByEmail(googleUser.email())
-                .orElseGet(() -> createGoogleUser(googleUser));
+        String email = googleUser.email().trim().toLowerCase(Locale.ROOT);
+        User user = userRepository.findByEmail(email)
+                .orElseGet(() -> createGoogleUser(
+                        new GoogleUserInfo(email, googleUser.firstName(), googleUser.lastName())));
+        if (user.getAuthProvider() != AuthProvider.GOOGLE) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Email is already registered with email and password. Please sign in using that method.");
+        }
 
         return issueToken(user);
     }
@@ -72,6 +80,7 @@ public class AuthService {
         user.setFirstName(googleUser.firstName());
         user.setLastName(googleUser.lastName());
         user.setEmail(googleUser.email());
+        user.setAuthProvider(AuthProvider.GOOGLE);
         // Kolom password wajib diisi; hash acak membuat login password tidak bisa dipakai
         user.setPassword(BCrypt.hashpw(UUID.randomUUID().toString(), BCrypt.gensalt()));
 

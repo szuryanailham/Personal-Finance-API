@@ -1,0 +1,2 @@
+ALTER TABLE users
+ADD COLUMN is_guidance_completed BOOLEAN NOT NULL DEFAULT FALSE;

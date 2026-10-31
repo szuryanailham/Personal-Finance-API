@@ -12,6 +12,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -178,6 +179,7 @@ public class UserControllerTest extends AbstractIntegrationTest {
 
         User user = userRepository.findByEmail(EMAIL).orElseThrow();
         assertTrue(BCrypt.checkpw(PASSWORD, user.getPassword()));
+        assertFalse(user.isGuidanceCompleted());
         assertTrue(redisTemplate.keys("reg:*").isEmpty(), "all registration keys must be cleared");
     }
 
@@ -332,6 +334,8 @@ public class UserControllerTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.data.firstName").value("Ilham"))
                 .andExpect(jsonPath("$.data.lastName").value("Suryana"))
                 .andExpect(jsonPath("$.data.email").value(EMAIL))
+                .andExpect(jsonPath("$.data.isGuidanceCompleted").value(false))
+                .andExpect(jsonPath("$.data.guidanceCompleted").doesNotExist())
                 .andExpect(jsonPath("$.data.password").doesNotExist())
                 .andExpect(jsonPath("$.data.token").doesNotExist());
     }
@@ -346,6 +350,74 @@ public class UserControllerTest extends AbstractIntegrationTest {
     void testGetCurrentUserInvalidToken() throws Exception {
         mockMvc.perform(get("/api/users/me").header("Authorization", "Bearer salah"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void testGuidanceUpdatesPersistAcrossLoginAndRemainIsolated() throws Exception {
+        User user = guidanceUser(EMAIL, "guidance-token");
+        User other = guidanceUser("other@example.com", "other-token");
+
+        for (boolean completed : new boolean[] {true, true, false, true}) {
+            mockMvc.perform(patch("/api/users/me/guidance")
+                    .header("Authorization", "Bearer guidance-token")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(objectMapper.writeValueAsString(Map.of(
+                            "isGuidanceCompleted", completed, "userId", other.getId()))))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.isGuidanceCompleted").value(completed))
+                    .andExpect(jsonPath("$.data.guidanceCompleted").doesNotExist())
+                    .andExpect(jsonPath("$.data.userId").doesNotExist());
+            assertEquals(completed, userRepository.findByEmail(user.getEmail()).orElseThrow().isGuidanceCompleted());
+            assertFalse(userRepository.findByEmail(other.getEmail()).orElseThrow().isGuidanceCompleted());
+        }
+
+        // A fresh login replaces the prior session token without resetting guidance.
+        String login = postJson("/api/auth/login", Map.of("email", EMAIL, "password", PASSWORD))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String token = objectMapper.readTree(login).path("data").path("token").asText();
+        mockMvc.perform(get("/api/users/me").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.isGuidanceCompleted").value(true));
+        mockMvc.perform(get("/api/users/me").header("Authorization", "Bearer other-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.isGuidanceCompleted").value(false));
+        mockMvc.perform(get("/api/users/me").header("Authorization", "Bearer guidance-token"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void testGuidanceRequiresAuthentication() throws Exception {
+        for (String token : new String[] {"", "Bearer invalid"}) {
+            mockMvc.perform(patch("/api/users/me/guidance")
+                    .header("Authorization", token)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"isGuidanceCompleted\":true}"))
+                    .andExpect(status().isUnauthorized());
+        }
+    }
+
+    @Test
+    void testGuidanceRequiresNonNullStatus() throws Exception {
+        guidanceUser(EMAIL, "guidance-token");
+        for (String body : new String[] {"{}", "{\"isGuidanceCompleted\":null}"}) {
+            mockMvc.perform(patch("/api/users/me/guidance")
+                    .header("Authorization", "Bearer guidance-token")
+                    .contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors").value("isGuidanceCompleted is required"));
+        }
+        assertFalse(userRepository.findByEmail(EMAIL).orElseThrow().isGuidanceCompleted());
+    }
+
+    private User guidanceUser(String email, String token) {
+        User user = new User();
+        user.setFirstName("Ilham");
+        user.setLastName("Suryana");
+        user.setEmail(email);
+        user.setPassword(BCrypt.hashpw(PASSWORD, BCrypt.gensalt()));
+        user.setToken(token);
+        user.setTokenExpiredAt(System.currentTimeMillis() + 1000000);
+        return userRepository.save(user);
     }
 
     // ---------- helpers ----------

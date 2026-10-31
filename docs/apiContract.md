@@ -1640,3 +1640,48 @@ Public endpoints are marked as:
 ```text
 Authentication: Public
 ```
+
+## Initial guidance status
+
+Both endpoints use the existing `Authorization: Bearer <token>` authentication.
+`GET /api/users/me` preserves its existing fields and adds `data.isGuidanceCompleted`:
+
+```json
+{
+  "data": {
+    "id": "user-uuid",
+    "firstName": "Ilham",
+    "lastName": "Suryana",
+    "email": "user@example.com",
+    "isGuidanceCompleted": false
+  },
+  "message": "Get current user successfully"
+}
+```
+
+`PATCH /api/users/me/guidance` updates only the authenticated user's initial guidance status.
+Request (`Content-Type: application/json`):
+
+```json
+{"isGuidanceCompleted": true}
+```
+
+Response (`200 OK`):
+
+```json
+{
+  "data": {"isGuidanceCompleted": true},
+  "message": "Guidance status updated successfully"
+}
+```
+
+Existing response wrapper fields may also be serialized as null. Both `true` and
+`false` are supported; missing or null status returns `400`. Missing or invalid
+credentials return `401`. No user ID is used from the request.
+
+Existing and newly registered users default to `false`. Show initial onboarding
+when the profile flag is false; set it to true when onboarding is completed or
+explicitly skipped. This value persists across logins. Guidance Center tutorials
+remain accessible and replayable regardless of this flag. Financial setup status
+is independent. Migration `V8__add_user_guidance_completed.sql` must run before
+deploying code that reads the new column.

@@ -98,3 +98,20 @@ spring.datasource.password=${DB_PASSWORD}
 ## License
 
 Not yet specified.
+
+### Authentication methods and email uniqueness
+
+An email belongs to one authentication method: email/password or Google. Manual
+registration rejects any registered email with HTTP 409. Google Sign-In returns
+HTTP 409 when the email belongs to a password account; users must sign in with
+their original method. Returning Google users can sign in normally. Email lookup
+and database uniqueness are case-insensitive, including concurrent registrations
+and accounts created while a manual-registration OTP is pending.
+
+Migration V7 adds `users.auth_provider` (`PASSWORD` or `GOOGLE`). Existing rows
+are assigned `PASSWORD` because the old schema did not record the provider.
+Before rollout, identify known Google-only accounts using trusted operational
+records and set their provider to `GOOGLE`; it cannot be inferred reliably from
+the password hash. Previously linked accounts default to password authentication.
+Resolve any existing emails differing only by case before applying V7; its unique
+index deliberately fails rather than merging or deleting accounts.
