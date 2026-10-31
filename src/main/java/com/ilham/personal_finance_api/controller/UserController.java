@@ -3,6 +3,7 @@ package com.ilham.personal_finance_api.controller;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -14,6 +15,8 @@ import com.ilham.personal_finance_api.dto.RegisterUserResponse;
 import com.ilham.personal_finance_api.dto.ResendOtpRequest;
 import com.ilham.personal_finance_api.dto.VerifyOtpRequest;
 import com.ilham.personal_finance_api.dto.UserResponse;
+import com.ilham.personal_finance_api.dto.GuidanceResponse;
+import com.ilham.personal_finance_api.dto.UpdateGuidanceRequest;
 import com.ilham.personal_finance_api.dto.WebResponse;
 import com.ilham.personal_finance_api.entity.User;
 import com.ilham.personal_finance_api.services.RegistrationService;
@@ -42,6 +45,18 @@ public class UserController {
         webResponse.setData(response);
         webResponse.setMessage("Get current user successfully");
         return webResponse;
+    }
+
+    @PatchMapping(
+        path = "/api/users/me/guidance",
+        produces = MediaType.APPLICATION_JSON_VALUE,
+        consumes = MediaType.APPLICATION_JSON_VALUE
+    )
+    public WebResponse<GuidanceResponse> updateGuidance(User user, @Valid @RequestBody UpdateGuidanceRequest request) {
+        WebResponse<GuidanceResponse> response = new WebResponse<>();
+        response.setData(userService.updateGuidance(user, request));
+        response.setMessage("Guidance status updated successfully");
+        return response;
     }
 
     @PostMapping(

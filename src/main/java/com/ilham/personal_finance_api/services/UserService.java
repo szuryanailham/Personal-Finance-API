@@ -2,10 +2,14 @@ package com.ilham.personal_finance_api.services;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import com.ilham.personal_finance_api.entity.User;
 import com.ilham.personal_finance_api.exception.DataAlreadyExistedException;
 import com.ilham.personal_finance_api.dto.RegisterUserResponse;
 import com.ilham.personal_finance_api.dto.UserResponse;
+import com.ilham.personal_finance_api.dto.GuidanceResponse;
+import com.ilham.personal_finance_api.dto.UpdateGuidanceRequest;
 import com.ilham.personal_finance_api.repository.PendingRegistration;
 import com.ilham.personal_finance_api.repository.UserRepository;
 
@@ -57,8 +61,19 @@ public UserResponse get(User user) {
     response.setFirstName(user.getFirstName());
     response.setLastName(user.getLastName());
     response.setEmail(user.getEmail());
+    response.setGuidanceCompleted(user.isGuidanceCompleted());
     return response;
 }
 
+@Transactional
+public GuidanceResponse updateGuidance(User user, UpdateGuidanceRequest request) {
+    User currentUser = userRepository.findFirstByToken(user.getToken())
+        .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unauthorized"));
+    currentUser.setGuidanceCompleted(request.getGuidanceCompleted());
+    userRepository.save(currentUser);
+    GuidanceResponse response = new GuidanceResponse();
+    response.setGuidanceCompleted(currentUser.isGuidanceCompleted());
+    return response;
+}
 
 }

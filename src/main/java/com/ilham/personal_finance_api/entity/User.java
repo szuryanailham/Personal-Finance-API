@@ -34,7 +34,14 @@ public class User {
 
     private String email;
 
+    @Column(name = "is_guidance_completed", nullable = false)
+    private boolean isGuidanceCompleted = false;
+
     private String password;
+
+    @jakarta.persistence.Enumerated(jakarta.persistence.EnumType.STRING)
+    @Column(name = "auth_provider", nullable = false)
+    private AuthProvider authProvider = AuthProvider.PASSWORD;
 
 
     private String token;

@@ -85,7 +85,7 @@ public class GoogleLoginControllerTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void testGoogleLoginLinksExistingUserByEmail() throws Exception {
+    void testGoogleLoginRejectsPasswordAccountByEmail() throws Exception {
         String passwordHash = BCrypt.hashpw("test12345", BCrypt.gensalt());
         User existing = new User();
         existing.setFirstName("Existing");
@@ -96,7 +96,7 @@ public class GoogleLoginControllerTest extends AbstractIntegrationTest {
 
         when(googleTokenVerifier.verify(ID_TOKEN)).thenReturn(new GoogleUserInfo(EMAIL, "Budi", "Santoso"));
 
-        googleLogin(ID_TOKEN).andExpect(status().isOk());
+        googleLogin(ID_TOKEN).andExpect(status().isConflict());
 
         assertEquals(1, userRepository.count());
         User user = userRepository.findByEmail(EMAIL).orElseThrow();
