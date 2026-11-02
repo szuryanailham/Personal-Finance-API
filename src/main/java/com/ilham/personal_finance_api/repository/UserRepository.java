@@ -17,6 +17,14 @@ public interface UserRepository extends JpaRepository<User, String> {
     boolean existsByEmail(@Param("email") String email);
     @Query("SELECT u FROM User u WHERE LOWER(u.email) = LOWER(:email)")
     Optional<User> findByEmail(@Param("email") String email);
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT u FROM User u WHERE LOWER(u.email) = LOWER(:email)")
+    Optional<User> findForPasswordResetByEmail(@Param("email") String email);
+
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT u FROM User u WHERE u.passwordResetTokenHash = :hash")
+    Optional<User> findForPasswordResetByHash(@Param("hash") String hash);
+
     Optional<User> findFirstByToken(String token);
     boolean existsByIdAndFinancialSetupCompletedAtIsNotNull(UUID id);
 
