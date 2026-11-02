@@ -117,3 +117,16 @@ These accounts can still sign in with a verified Google token; no provider
 backfill is required. Resolve any existing emails differing only by case before
 applying V7; its unique index deliberately fails rather than merging or deleting
 accounts.
+
+
+### Password reset
+
+`POST /api/auth/forgot-password` accepts `{"email":"user@example.com"}` and sends a reset link using the existing SMTP settings. Email is normalized by trimming and lowercasing, as in registration. Only persisted accounts are eligible: pending sign-ups return 404 until registration OTP verification creates the account. Legacy password accounts remain eligible. Google accounts return 400 directing users to Google recovery.
+
+Responses use `WebResponse`: 200 with `message: "Password reset email sent"`; 400 for invalid input or Google accounts; 404 for unknown/pending email; 503 with a safe error if email delivery fails. Email must be nonblank, valid, and at most 100 characters.
+
+`POST /api/auth/reset-password` accepts `{"token":"<token from email>","newPassword":"new secret"}`. Password must be nonblank, at most 100 characters and at most 72 UTF-8 bytes; whitespace is preserved. Returns 200 with `message: "Password reset successfully, please log in"`, or 400 for invalid input, unknown, expired, replaced, or already consumed tokens. Errors use the envelope's `errors` field; successful reset responses contain no credentials or user details.
+
+Links expire exactly 15 minutes after issuance and are single use. Requesting another link replaces the previous link; failed SMTP delivery preserves the previous link. Successful reset revokes the existing bearer session and requires normal login. No additional OTP is required: registration verifies initial mailbox ownership, and the reset link proves current mailbox access.
+
+Set `PASSWORD_RESET_URL` to the frontend reset page in production (default `http://localhost:3000/reset-password`). It must be an absolute HTTP(S) URL without credentials or a fragment. The backend appends/replaces the `token` query parameter; the frontend submits it to the reset endpoint. Frontend implementation is separate. Only a SHA-256 token hash is stored in PostgreSQL.

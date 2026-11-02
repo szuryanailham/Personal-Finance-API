@@ -49,6 +49,12 @@ public class User {
     @Column(name = "token_expired_at")
     private Long tokenExpiredAt;
 
+    @Column(name = "password_reset_token_hash", length = 64)
+    private String passwordResetTokenHash;
+
+    @Column(name = "password_reset_expires_at")
+    private Long passwordResetExpiresAt;
+
     // null = setup saldo awal belum diselesaikan / dilewati
     @Column(name = "financial_setup_completed_at")
     private LocalDateTime financialSetupCompletedAt;
