@@ -1,6 +1,7 @@
 # Deploy produksi: API + PostgreSQL + Redis dalam satu host (VPS).
 # Isi .env dari .env.example, lalu: docker compose -f docker-compose.prod.yml up -d --build
-# Postgres & Redis tidak dipublish ke host; API hanya bind ke localhost untuk di-proxy Nginx.
+# PostgreSQL tersedia di localhost:15432; Redis tidak dipublish ke host.
+# API hanya bind ke localhost untuk di-proxy Nginx.
 
 services:
   postgres:
@@ -10,6 +11,8 @@ services:
       POSTGRES_USER: ${DB_USERNAME:?DB_USERNAME wajib diisi}
       POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD wajib diisi}
       POSTGRES_DB: ${DB_NAME:?DB_NAME wajib diisi}
+    ports:
+      - "127.0.0.1:15432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
