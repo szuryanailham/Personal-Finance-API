@@ -29,6 +29,9 @@ A REST API for tracking and managing personal finances — income, expenses, tra
 
 ## Running Locally
 
+For automated testing and VPS deployment from `release/v.0.1`, follow the
+[CI/CD setup guide](docs/deployment.md).
+
 1. Clone this repository.
 
 2. Start the PostgreSQL database via Docker Compose:

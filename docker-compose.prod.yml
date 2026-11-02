@@ -33,7 +33,9 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
 
   api:
-    build: .
+    build:
+      context: .
+      dockerfile: dockerfile
     restart: unless-stopped
     env_file: .env
     environment:
