@@ -89,6 +89,11 @@ src/main/java/com/ilham/personal_finance_api/
 
 Database migrations live in `src/main/resources/db/migration`.
 
+The separate Artoku SEO blog schema, ERD, provisioning instructions, and query
+examples are documented in [Blog database design](docs/blog-database-design.md).
+Its migrations live in `src/main/resources/db/blog-migration` and must run only
+against the dedicated `artoku_blog` database using a separate Flyway invocation.
+
 ## Configuration Note
 
 `application.properties` currently stores database credentials directly for local development. Before using this in any other environment (staging/production), move sensitive values to environment variables, e.g.:
