@@ -11,13 +11,13 @@ blog tidak sama dengan identitas pengguna Artoku walaupun alamat email sama.
 
 Repo saat ini memakai Java 21 dan Spring Boot **4.1.1**, bukan Boot 3 dalam brief.
 Migration SQL ini tidak bergantung pada versi Boot. Migration keuangan V1–V9
-tetap pada `db/migration`; blog memakai `db/blog-migration` V1–V5. Jangan
+tetap pada `db/migration`; blog memakai `db/blog-migration` V1–V6. Jangan
 menggabungkan kedua lokasi dalam satu instance Flyway.
 
 MVP inti: users, roles, user_roles, posts, categories, tags, kedua junction,
 post_seo_metadata, media, dan post_slug_routes. Visitor tracking menggunakan tool analitik eksternal tanpa tabel statistik lokal.
 Revisi juga opsional untuk rilis awal; schema disiapkan agar tidak perlu merombak
-artikel. Paket lengkap menjalankan kelima migration secara berurutan. Jangan
+artikel. Paket lengkap menjalankan keenam migration secara berurutan. Jangan
 menghapus migration yang sudah diterapkan untuk menonaktifkan fitur.
 
 Tidak ditambahkan permission matrix, event mentah, visitor profiles, folder media,
@@ -53,6 +53,7 @@ erDiagram
     users ||--o{ posts : authors
     users ||--o{ media : uploads
     users ||--o{ post_revisions : edits
+    users ||--o{ blog_auth_sessions : authenticates
     media o|--o{ posts : featured_image
     posts ||--o| post_seo_metadata : configures
     posts ||--o{ post_categories : categorized
@@ -118,6 +119,12 @@ erDiagram
         integer revision_number
         jsonb snapshot
     }
+    blog_auth_sessions {
+        varchar token_hash PK
+        uuid user_id FK
+        timestamptz expires_at
+        timestamptz created_at
+    }
     post_slug_routes {
         varchar slug PK
         uuid post_id FK
@@ -142,6 +149,7 @@ dalam SQL migration, yang menjadi definisi schema lengkap.
 | post_seo_metadata | Override metadata SEO opsional satu-ke-satu |
 | media | Metadata file eksternal, dimensi, bytes, provider, pengunggah |
 | post_revisions | Snapshot immutable yang ditulis aplikasi per revisi |
+| blog_auth_sessions | Hash token sesi CMS, pengguna, waktu kedaluwarsa |
 | post_slug_routes | Reservasi slug kini dan historis; dasar redirect 301 |
 
 Entitas utama menggunakan UUID default gen_random_uuid(); baseline PostgreSQL 14+.
@@ -245,24 +253,20 @@ flyway -configFiles=docs/blog-flyway.conf.example validate
 
 Periksa host/database tujuan sebelum migrate. Kredensial blog tidak boleh mempunyai
 akses database keuangan. Setiap database mempunyai flyway_schema_history sendiri;
-nomor V1–V5 blog tidak berhubungan dengan nomor migration keuangan.
+nomor V1–V6 blog tidak berhubungan dengan nomor migration keuangan.
 
-Paket blog masih berupa draft migration baru di repository. Migration analitik V5
-sebelumnya dihapus dan fitur tambahan sebelumnya V6 menjadi V5. Jika paket lama
-sudah diterapkan pada database lain, jangan gunakan penomoran baru di database itu;
-pertahankan riwayat lama dan gunakan migration lanjutan untuk menghapus tabel
-analitik setelah memeriksa kebutuhan datanya.
+V1–V5 mendefinisikan konten CMS; V6 menambahkan blog_auth_sessions untuk
+sesi login CMS. V1–V5 yang sudah diterapkan tidak diubah.
 
-
-Paket ini menyediakan **schema dan konfigurasi CLI**, belum menambahkan datasource,
-JPA entity, scheduler, autentikasi, atau endpoint blog ke aplikasi keuangan.
-Jangan mengganti spring.datasource utama ke blog: entity keuangan masih divalidasi
-Hibernate. Bila runtime masih satu aplikasi, implementasikan datasource blog,
-EntityManagerFactory/repository package dan transaction manager terpisah, serta
-instance Flyway blog dengan lokasi khusus. Pertahankan Flyway utama secara eksplisit
-karena custom bean dapat memengaruhi auto-configuration. Uji kedua koneksi.
-Alternatif yang lebih sederhana adalah runtime blog terpisah sejak awal, dengan
-datasource tunggal blog; route reverse proxy `/blog` tidak menentukan batas database.
+Runtime CMS sekarang tersedia sebagai modul opsional pada aplikasi yang sama.
+Lihat [konfigurasi dan kontrak autentikasi CMS](blog-auth-api.md).
+Datasource blog memakai bean non-default candidate sehingga datasource utama,
+JPA keuangan, dan bean Flyway utama tetap dikelola auto-configuration.
+Blog memakai JdbcTemplate dan TransactionTemplate dengan transaction manager lokal
+khusus blog. Tidak ada entity blog yang masuk ke persistence unit JPA keuangan.
+Flyway blog dijalankan dalam inisialisasi BlogStore dan bukan bean Flyway kedua.
+Integrasi ini diuji dengan dua database terpisah. Pendekatan datasource tambahan
+mengikuti [panduan Spring Boot](https://docs.spring.io/spring-boot/how-to/data-access.html).
 
 Untuk pindah microservice, pindahkan migration ini dan dump/restore artoku_blog,
 kemudian ubah routing dan kredensial layanan. Tidak perlu memisahkan tabel pengguna
@@ -271,7 +275,7 @@ integrasi masa depan dengan kontrak identitas yang eksplisit.
 
 ## Artefak dan referensi
 
-- Schema lengkap: [V1–V5](../src/main/resources/db/blog-migration/).
+- Schema lengkap: [V1–V6](../src/main/resources/db/blog-migration/).
 - [Query publik, related posts, dan laporan publikasi](blog-queries.sql).
 - [Konfigurasi Flyway CLI](blog-flyway.conf.example).
 - [PostgreSQL constraints](https://www.postgresql.org/docs/18/ddl-constraints.html).
