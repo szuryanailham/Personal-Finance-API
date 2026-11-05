@@ -1,5 +1,7 @@
 package com.ilham.personal_finance_api.blog;
 
+import com.ilham.personal_finance_api.blog.service.BlogAuthService;
+
 import com.ilham.personal_finance_api.AbstractIntegrationTest;
 import com.ilham.personal_finance_api.repository.UserRepository;
 import com.ilham.personal_finance_api.security.BCrypt;
@@ -87,7 +89,7 @@ class BlogAuthControllerTest extends AbstractIntegrationTest {
                 .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
                 .andExpect(jsonPath("$.data.tokenType").value("Bearer"))
                 .andReturn();
-        return json.readTree(result.getResponse().getContentAsString()).get("data").get("token").asText();
+        return json.readTree(result.getResponse().getContentAsString()).get("data").get("token").asString();
     }
 
     @Test void registersOnlyInBlogAndKeepsFinanceFlyway() throws Exception {
@@ -235,7 +237,7 @@ class BlogAuthControllerTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.data.name").value("Personal Finance"))
                 .andExpect(jsonPath("$.data.slug").value(slug))
                 .andExpect(jsonPath("$.data.createdAt").exists()).andReturn();
-        return json.readTree(result.getResponse().getContentAsString()).get("data").get("id").asText();
+        return json.readTree(result.getResponse().getContentAsString()).get("data").get("id").asString();
     }
 
     @org.junit.jupiter.params.ParameterizedTest
@@ -365,6 +367,84 @@ class BlogAuthControllerTest extends AbstractIntegrationTest {
                 .andExpect(status().isConflict());
         mvc.perform(get(path + "/" + term).header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk());
+    }
+
+    Map<String, Object> postBody(String token) throws Exception {
+        grant("EDITOR");
+        String category = createTerm("/api/blog/categories", token, "cat-" + UUID.randomUUID());
+        String tag = createTerm("/api/blog/tags", token, "tag-" + UUID.randomUUID());
+        jdbc.update("DELETE FROM user_roles WHERE user_id=(SELECT id FROM users WHERE email=?) "
+                + "AND role_id=(SELECT id FROM roles WHERE name='EDITOR')", email);
+        var body = new java.util.HashMap<String, Object>();
+        body.put("title", " Budgeting ");
+        body.put("slug", "budget-" + UUID.randomUUID());
+        body.put("contentHtml", "<p>Hello <strong>Artoku</strong></p><script>alert(1)</script>"
+                + "<a href='javascript:alert(1)' onclick='alert(1)'>link</a>");
+        body.put("categoryIds", java.util.List.of(category));
+        body.put("tagIds", java.util.List.of(tag));
+        return body;
+    }
+
+    ResultActions postArticle(String token, Map<String, Object> body) throws Exception {
+        var request = post("/api/blog/posts").contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(body));
+        if (token != null) request.header("Authorization", "Bearer " + token);
+        return mvc.perform(request);
+    }
+
+    @Test void createsDraftWithTaxonomyAndSanitizedContent() throws Exception {
+        create();
+        String token = token();
+        var body = postBody(token);
+        var response = postArticle(token, body).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.title").value("Budgeting"))
+                .andExpect(jsonPath("$.data.status").value("DRAFT"))
+                .andExpect(jsonPath("$.data.readingTimeMinutes").value(1))
+                .andReturn();
+        var data = json.readTree(response.getResponse().getContentAsString()).get("data");
+        UUID id = UUID.fromString(data.get("id").asString());
+        assertFalse(data.get("contentHtml").asString().contains("script"));
+        assertFalse(data.get("contentHtml").asString().contains("onclick"));
+        assertTrue(data.get("contentHtml").asString().contains("<strong>Artoku</strong>"));
+        assertEquals(email, jdbc.queryForObject("SELECT u.email FROM posts p JOIN users u ON u.id=p.author_id WHERE p.id=?", String.class, id));
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM post_categories WHERE post_id=?", Integer.class, id));
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM post_tags WHERE post_id=?", Integer.class, id));
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM post_slug_routes WHERE post_id=?", Integer.class, id));
+        postArticle(token, body).andExpect(status().isConflict());
+    }
+
+    @Test void publishingRequiresEditorAndSetsPublicationTime() throws Exception {
+        create();
+        String token = token();
+        var body = postBody(token);
+        body.put("status", "PUBLISHED");
+        postArticle(null, body).andExpect(status().isUnauthorized());
+        postArticle("invalid", body).andExpect(status().isUnauthorized());
+        postArticle(token, body).andExpect(status().isForbidden());
+        grant("EDITOR");
+        postArticle(token, body).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.publishedAt").value(NOW.toString()));
+    }
+
+    @Test void invalidTaxonomyDoesNotLeavePartialPost() throws Exception {
+        create();
+        String token = token();
+        var body = postBody(token);
+        body.put("tagIds", java.util.List.of(UUID.randomUUID().toString()));
+        postArticle(token, body).andExpect(status().isBadRequest());
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM posts WHERE slug=?", Integer.class, body.get("slug")));
+        var ids = body.get("categoryIds");
+        body.put("tagIds", java.util.List.of());
+        body.put("categoryIds", java.util.List.of());
+        postArticle(token, body).andExpect(status().isBadRequest());
+        body.put("categoryIds", ids);
+        body.put("contentHtml", "<script>alert(1)</script>");
+        postArticle(token, body).andExpect(status().isBadRequest());
+        body.put("contentHtml", "<p>Valid</p>");
+        body.put("status", "ARCHIVED");
+        postArticle(token, body).andExpect(status().isBadRequest());
+        body.put("status", "DRAFT");
+        postArticle(token, body).andExpect(status().isCreated());
     }
 
 }

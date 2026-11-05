@@ -1,6 +1,6 @@
 {
   "info": {
-    "name": "Blog CMS - Categories and Tags",
+    "name": "Blog CMS - Posts, Categories and Tags",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -246,6 +246,37 @@
           }
         }
       ]
+    },
+    {
+      "name": "Create blog post",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/blog/posts",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "blog",
+            "posts"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Cara mengatur keuangan bulanan\",\n  \"slug\": \"cara-mengatur-keuangan-bulanan\",\n  \"excerpt\": \"Panduan anggaran\",\n  \"contentHtml\": \"<p>Catat pemasukan dan pengeluaran.</p>\",\n  \"status\": \"DRAFT\",\n  \"categoryIds\": [\n    \"{{categoryId}}\"\n  ],\n  \"tagIds\": [\n    \"{{tagId}}\"\n  ]\n}"
+        }
+      }
     }
   ]
 }

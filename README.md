@@ -142,3 +142,5 @@ Links expire exactly 15 minutes after issuance and are single use. Requesting an
 Set `PASSWORD_RESET_URL` to the frontend reset page in production (default `http://localhost:3000/reset-password`). It must be an absolute HTTP(S) URL without credentials or a fragment. The backend appends/replaces the `token` query parameter; the frontend submits it to the reset endpoint. Frontend implementation is separate. Only a SHA-256 token hash is stored in PostgreSQL.
 
 CMS blog category and tag CRUD: [API contract and Postman collection](docs/blog-taxonomy-api.md).
+
+Create artikel blog dengan kategori dan tag: [API contract](docs/blog-post-api.md).
