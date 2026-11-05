@@ -1,0 +1,10 @@
+# Flyway CLI only. This file is NOT a Spring Boot application profile.
+# Copy to a local file and provide FLYWAY_USER / FLYWAY_PASSWORD via environment.
+flyway.url=jdbc:postgresql://localhost:5432/artoku_blog
+flyway.locations=filesystem:src/main/resources/db/blog-migration
+flyway.defaultSchema=public
+flyway.schemas=public
+flyway.table=flyway_schema_history
+flyway.baselineOnMigrate=false
+flyway.cleanDisabled=true
+flyway.validateMigrationNaming=true

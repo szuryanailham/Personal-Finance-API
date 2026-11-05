@@ -89,6 +89,13 @@ src/main/java/com/ilham/personal_finance_api/
 
 Database migrations live in `src/main/resources/db/migration`.
 
+The separate Artoku SEO blog schema, ERD, provisioning instructions, and query
+examples are documented in [Blog database design](docs/blog-database-design.md).
+Its migrations live in `src/main/resources/db/blog-migration` and must run only
+against the dedicated `artoku_blog` database using a separate Flyway invocation.
+CMS registration, login, session verification, and logout are available through
+the optional blog module: [configuration and API contract](docs/blog-auth-api.md).
+
 ## Configuration Note
 
 `application.properties` currently stores database credentials directly for local development. Before using this in any other environment (staging/production), move sensitive values to environment variables, e.g.:
@@ -133,3 +140,5 @@ Responses use `WebResponse`: 200 with `message: "Password reset email sent"`; 40
 Links expire exactly 15 minutes after issuance and are single use. Requesting another link replaces the previous link; failed SMTP delivery preserves the previous link. Successful reset revokes the existing bearer session and requires normal login. No additional OTP is required: registration verifies initial mailbox ownership, and the reset link proves current mailbox access.
 
 Set `PASSWORD_RESET_URL` to the frontend reset page in production (default `http://localhost:3000/reset-password`). It must be an absolute HTTP(S) URL without credentials or a fragment. The backend appends/replaces the `token` query parameter; the frontend submits it to the reset endpoint. Frontend implementation is separate. Only a SHA-256 token hash is stored in PostgreSQL.
+
+CMS blog category and tag CRUD: [API contract and Postman collection](docs/blog-taxonomy-api.md).
