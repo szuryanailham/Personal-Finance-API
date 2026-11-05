@@ -45,8 +45,15 @@ For automated testing and VPS deployment from `release/v.0.1`, follow the
 4. Run the application:
 
    ```bash
-   ./mvnw spring-boot:run
+   ./mvnw spring-boot:run -Dspring-boot.run.profiles=local
    ```
+
+   The `local` profile loads `.env` from the project root. When running from an IDE,
+   set the active Spring profile to `local` and the working directory to this project.
+   For the blog CMS, set `BLOG_ENABLED=true` and configure `BLOG_DB_URL`,
+   `BLOG_DB_USERNAME`, and `BLOG_DB_PASSWORD` in `.env`. Provision the blog database
+   first; see [blog configuration](docs/blog-auth-api.md). Restart the application
+   after changing `.env` or adding endpoints.
 
    Database migrations (Flyway) run automatically on startup.
 

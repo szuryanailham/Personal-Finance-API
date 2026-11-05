@@ -20,8 +20,11 @@ public class WebConfiguration implements WebMvcConfigurer {
     @Autowired
     private UserArgumentResolver userArgumentResolver;
 
-    @Value("${app.cors.allowed-origins:http://localhost:3000}")
+    @Value("${app.cors.allowed-origins:http://localhost:3000,http://localhost:30001,https://cms.myartoku.com}")
     private String[] allowedOrigins;
+
+    @Value("${app.blog.cors.allowed-origins:https://www.myartoku.com}")
+    private String[] blogPublicOrigins;
 
     @Override
     public void addArgumentResolvers(List<HandlerMethodArgumentResolver> resolvers) {
@@ -31,6 +34,14 @@ public class WebConfiguration implements WebMvcConfigurer {
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {
+        // Register specific public routes before the general API mapping.
+        for (String path : new String[]{"/api/blog/published", "/api/blog/published/**"}) {
+            registry.addMapping(path)
+                    .allowedOrigins(blogPublicOrigins)
+                    .allowedMethods("GET", "OPTIONS")
+                    .allowedHeaders("Accept", "Content-Type")
+                    .maxAge(CORS_MAX_AGE_SECONDS);
+        }
         registry.addMapping("/api/**")
                 .allowedOrigins(allowedOrigins)
                 .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")

@@ -6,6 +6,19 @@ Aktifkan BLOG_ENABLED hanya setelah database blog tersedia.
 
 ## Konfigurasi lokal
 
+Untuk menjalankan dari `.env` di root proyek, isi `BLOG_ENABLED=true` dan
+`BLOG_DB_URL`, `BLOG_DB_USERNAME`, serta `BLOG_DB_PASSWORD`, lalu jalankan:
+
+```bash
+./mvnw spring-boot:run -Dspring-boot.run.profiles=local
+```
+
+Profil `local` memuat `.env` sebagai konfigurasi Spring. Di IDE, pilih active profile
+`local` dan working directory root proyek. Restart proses setelah mengubah konfigurasi.
+Tanpa profil ini, `.env` tidak dimuat otomatis oleh Spring; gunakan environment
+variables seperti contoh berikut. Docker Compose produksi sudah memakai `env_file`.
+
+
 ```bash
 export BLOG_ENABLED=true
 export BLOG_DB_URL=jdbc:postgresql://localhost:5432/artoku_blog
@@ -18,7 +31,7 @@ export BLOG_FLYWAY_ENABLED=true
 
 Password di atas tidak diisi oleh aplikasi; BLOG_DB_PASSWORD harus tersedia.
 Akun postgres hanya untuk development lokal. V1–V5 tetap; V6 menambahkan tabel
-blog_auth_sessions. Flyway blog berjalan saat startup jika BLOG_FLYWAY_ENABLED=true,
+blog_auth_sessions; V7 melepas slug artikel yang di-soft delete. Flyway blog berjalan saat startup jika BLOG_FLYWAY_ENABLED=true,
 sebelum BlogStore siap dipakai. Migration utama tetap menuju database keuangan.
 Database blog tidak dibuat otomatis oleh aplikasi.
 
@@ -33,7 +46,7 @@ INSERT users/user_roles/blog_auth_sessions, dan DELETE blog_auth_sessions untuk
 endpoint saat ini. Berikan privilege pada objek lain hanya saat fitur memerlukannya.
 Jalankan CLI migration terlebih dahulu atau isi BLOG_FLYWAY_USERNAME/PASSWORD dengan
 akun DDL yang tepat. Bila memakai CLI, set BLOG_FLYWAY_ENABLED=false; schema harus
-sudah mencapai V6. Owner NOLOGIN bisa tetap menjadi pemilik objek, sementara migrator
+sudah mencapai V7. Owner NOLOGIN bisa tetap menjadi pemilik objek, sementara migrator
 LOGIN diberi membership owner. Jangan gunakan superuser sebagai akun runtime VPS.
 
 ## Kebijakan registrasi
