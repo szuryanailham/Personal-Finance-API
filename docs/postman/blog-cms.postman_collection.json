@@ -1,6 +1,6 @@
 {
   "info": {
-    "name": "Blog CMS - Categories and Tags",
+    "name": "Blog CMS - Posts, Categories and Tags",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -36,6 +36,14 @@
     },
     {
       "key": "tagId",
+      "value": ""
+    },
+    {
+      "key": "postId",
+      "value": ""
+    },
+    {
+      "key": "articleSlug",
       "value": ""
     }
   ],
@@ -246,6 +254,107 @@
           }
         }
       ]
+    },
+    {
+      "name": "Create blog post",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/blog/posts",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "blog",
+            "posts"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Cara mengatur keuangan bulanan\",\n  \"slug\": \"cara-mengatur-keuangan-bulanan\",\n  \"excerpt\": \"Panduan anggaran\",\n  \"contentHtml\": \"<p>Catat pemasukan dan pengeluaran.</p>\",\n  \"status\": \"DRAFT\",\n  \"categoryIds\": [\n    \"{{categoryId}}\"\n  ],\n  \"tagIds\": [\n    \"{{tagId}}\"\n  ]\n}"
+        }
+      }
+    },
+    {
+      "name": "List blog posts (CMS)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/blog/posts?skip=0&limit=20"
+      }
+    },
+    {
+      "name": "Patch blog post (CMS)",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/blog/posts/{{postId}}",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Judul artikel diperbarui\",\n  \"tagIds\": []\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Detail Post CMS",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/blog/posts/{{postId}}",
+        "description": "Detail lengkap sebelum PATCH. AUTHOR: artikel milik sendiri; ADMIN/EDITOR: semua artikel aktif. Memerlukan token CMS."
+      }
+    },
+    {
+      "name": "Soft Delete Post CMS",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": "{{baseUrl}}/api/blog/posts/{{postId}}",
+        "description": "Tanpa body. AUTHOR hanya draft miliknya; ADMIN/EDITOR semua status. Soft delete mempertahankan konten dan relasi; reservasi slug dilepas agar dapat dipakai ulang. Memerlukan token CMS."
+      }
+    },
+    {
+      "name": "Public Article List",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/blog/published?skip=0&limit=20"
+      }
+    },
+    {
+      "name": "Public Article Detail",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/blog/published/{{articleSlug}}"
+      }
     }
   ]
 }

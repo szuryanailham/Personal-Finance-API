@@ -1,4 +1,11 @@
-package com.ilham.personal_finance_api.blog;
+package com.ilham.personal_finance_api.blog.service;
+
+import com.ilham.personal_finance_api.blog.repository.BlogStore;
+
+import com.ilham.personal_finance_api.blog.dto.BlogLoginRequest;
+import com.ilham.personal_finance_api.blog.dto.BlogLoginResponse;
+import com.ilham.personal_finance_api.blog.dto.BlogRegisterRequest;
+import com.ilham.personal_finance_api.blog.dto.BlogUserResponse;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -16,7 +23,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 import com.ilham.personal_finance_api.security.BCrypt;
-import static com.ilham.personal_finance_api.blog.BlogAuthModels.*;
 
 @Service
 @ConditionalOnProperty(name = "app.blog.enabled", havingValue = "true")
@@ -35,7 +41,7 @@ public class BlogAuthService {
         this.registrationKey = registrationKey;
     }
 
-    public UserResponse register(RegisterRequest request, String key) {
+    public BlogUserResponse register(BlogRegisterRequest request, String key) {
         if (registrationKey.isBlank() || key == null || !MessageDigest.isEqual(
                 registrationKey.getBytes(StandardCharsets.UTF_8), key.getBytes(StandardCharsets.UTF_8))) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Blog registration is not permitted");
@@ -49,7 +55,7 @@ public class BlogAuthService {
         }
     }
 
-    public LoginResponse login(LoginRequest request) {
+    public BlogLoginResponse login(BlogLoginRequest request) {
         passwordBytes(request.password());
         var account = store.byEmail(normalize(request.email()));
         String passwordHash = account.isPresent() ? account.get().passwordHash() : DUMMY_HASH;
@@ -61,10 +67,10 @@ public class BlogAuthService {
         var now = clock.instant();
         var expires = now.plus(SESSION_TTL);
         store.issueSession(account.get().id(), hash(token), now, expires);
-        return new LoginResponse(token, "Bearer", expires, store.profile(account.get()));
+        return new BlogLoginResponse(token, "Bearer", expires, store.profile(account.get()));
     }
 
-    public UserResponse me(String authorization) {
+    public BlogUserResponse me(String authorization) {
         return store.profile(store.session(hash(bearer(authorization)), clock.instant()).orElseThrow(BlogAuthService::unauthorized));
     }
 
@@ -90,7 +96,7 @@ public class BlogAuthService {
         return email.strip().toLowerCase(Locale.ROOT);
     }
 
-    static String hash(String token) {
+    public static String hash(String token) {
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(token.getBytes(StandardCharsets.UTF_8)));
         } catch (NoSuchAlgorithmException ex) {

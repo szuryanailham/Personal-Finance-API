@@ -71,7 +71,7 @@ CORS is enabled for every path under `/api/**`.
 
 | Setting           | Value                                                                                   |
 | ----------------- | --------------------------------------------------------------------------------------- |
-| Allowed origins   | `app.cors.allowed-origins` (env `CORS_ALLOWED_ORIGINS`, comma-separated). Default: `http://localhost:3000` |
+| Allowed origins   | `app.cors.allowed-origins` (env `CORS_ALLOWED_ORIGINS`, comma-separated). Default: `http://localhost:3000`, `http://localhost:30001`, `https://cms.myartoku.com` |
 | Allowed methods   | `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`                                      |
 | Allowed headers   | `Authorization`, `Content-Type`, `Accept`                                               |
 | Preflight max-age | `3600` seconds                                                                          |

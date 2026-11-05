@@ -1,4 +1,10 @@
-package com.ilham.personal_finance_api.blog;
+package com.ilham.personal_finance_api.blog.controller;
+
+import com.ilham.personal_finance_api.blog.entity.BlogTaxonomyKind;
+import com.ilham.personal_finance_api.blog.service.BlogTaxonomyService;
+
+import com.ilham.personal_finance_api.blog.dto.BlogCategoryRequest;
+import com.ilham.personal_finance_api.blog.dto.BlogTermResponse;
 
 import java.util.List;
 import java.util.UUID;
@@ -10,8 +16,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import com.ilham.personal_finance_api.dto.WebResponse;
-import static com.ilham.personal_finance_api.blog.BlogTaxonomyModels.*;
-import static com.ilham.personal_finance_api.blog.BlogTaxonomyModels.Kind.CATEGORY;
+
+import static com.ilham.personal_finance_api.blog.entity.BlogTaxonomyKind.CATEGORY;
 
 @RestController
 @RequestMapping("/api/blog/categories")
@@ -22,37 +28,37 @@ public class BlogCategoryController {
     public BlogCategoryController(BlogTaxonomyService service) { this.service = service; }
 
     @GetMapping
-    public ResponseEntity<WebResponse<List<TermResponse>>> list(
+    public ResponseEntity<WebResponse<List<BlogTermResponse>>> list(
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(defaultValue = "") String search) {
         var result = service.list(CATEGORY, authorization, page, size, search);
-        var body = new WebResponse<List<TermResponse>>();
+        var body = new WebResponse<List<BlogTermResponse>>();
         body.setData(result.items());
         body.setPaging(result.paging());
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(body);
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<WebResponse<TermResponse>> get(
+    public ResponseEntity<WebResponse<BlogTermResponse>> get(
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
             @PathVariable UUID id) {
         return response(HttpStatus.OK, service.get(CATEGORY, authorization, id));
     }
 
     @PostMapping
-    public ResponseEntity<WebResponse<TermResponse>> create(
+    public ResponseEntity<WebResponse<BlogTermResponse>> create(
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
-            @Valid @RequestBody CategoryRequest request) {
+            @Valid @RequestBody BlogCategoryRequest request) {
         return response(HttpStatus.CREATED, service.create(CATEGORY, authorization,
                 request.name(), request.slug(), request.description()));
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<WebResponse<TermResponse>> update(
+    public ResponseEntity<WebResponse<BlogTermResponse>> update(
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
-            @PathVariable UUID id, @Valid @RequestBody CategoryRequest request) {
+            @PathVariable UUID id, @Valid @RequestBody BlogCategoryRequest request) {
         return response(HttpStatus.OK, service.update(CATEGORY, authorization, id,
                 request.name(), request.slug(), request.description()));
     }

@@ -1,4 +1,6 @@
-package com.ilham.personal_finance_api.blog;
+package com.ilham.personal_finance_api.blog.config;
+
+import com.ilham.personal_finance_api.blog.repository.BlogStore;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;

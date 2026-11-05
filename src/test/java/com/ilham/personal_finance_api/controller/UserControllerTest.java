@@ -374,7 +374,7 @@ public class UserControllerTest extends AbstractIntegrationTest {
         // A fresh login replaces the prior session token without resetting guidance.
         String login = postJson("/api/auth/login", Map.of("email", EMAIL, "password", PASSWORD))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        String token = objectMapper.readTree(login).path("data").path("token").asText();
+        String token = objectMapper.readTree(login).path("data").path("token").asString();
         mockMvc.perform(get("/api/users/me").header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.isGuidanceCompleted").value(true));

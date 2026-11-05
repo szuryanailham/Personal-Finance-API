@@ -45,8 +45,15 @@ For automated testing and VPS deployment from `release/v.0.1`, follow the
 4. Run the application:
 
    ```bash
-   ./mvnw spring-boot:run
+   ./mvnw spring-boot:run -Dspring-boot.run.profiles=local
    ```
+
+   The `local` profile loads `.env` from the project root. When running from an IDE,
+   set the active Spring profile to `local` and the working directory to this project.
+   For the blog CMS, set `BLOG_ENABLED=true` and configure `BLOG_DB_URL`,
+   `BLOG_DB_USERNAME`, and `BLOG_DB_PASSWORD` in `.env`. Provision the blog database
+   first; see [blog configuration](docs/blog-auth-api.md). Restart the application
+   after changing `.env` or adding endpoints.
 
    Database migrations (Flyway) run automatically on startup.
 
@@ -142,3 +149,5 @@ Links expire exactly 15 minutes after issuance and are single use. Requesting an
 Set `PASSWORD_RESET_URL` to the frontend reset page in production (default `http://localhost:3000/reset-password`). It must be an absolute HTTP(S) URL without credentials or a fragment. The backend appends/replaces the `token` query parameter; the frontend submits it to the reset endpoint. Frontend implementation is separate. Only a SHA-256 token hash is stored in PostgreSQL.
 
 CMS blog category and tag CRUD: [API contract and Postman collection](docs/blog-taxonomy-api.md).
+
+Create artikel blog dengan kategori dan tag: [API contract](docs/blog-post-api.md).

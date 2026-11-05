@@ -1,5 +1,7 @@
 package com.ilham.personal_finance_api.blog;
 
+import com.ilham.personal_finance_api.blog.service.BlogAuthService;
+
 import com.ilham.personal_finance_api.AbstractIntegrationTest;
 import com.ilham.personal_finance_api.repository.UserRepository;
 import com.ilham.personal_finance_api.security.BCrypt;
@@ -87,14 +89,14 @@ class BlogAuthControllerTest extends AbstractIntegrationTest {
                 .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
                 .andExpect(jsonPath("$.data.tokenType").value("Bearer"))
                 .andReturn();
-        return json.readTree(result.getResponse().getContentAsString()).get("data").get("token").asText();
+        return json.readTree(result.getResponse().getContentAsString()).get("data").get("token").asString();
     }
 
     @Test void registersOnlyInBlogAndKeepsFinanceFlyway() throws Exception {
         create();
         assertTrue(financeUsers.findByEmail(email).isEmpty());
         assertEquals("9", financeFlyway.info().current().getVersion().toString());
-        assertEquals(6, jdbc.queryForObject("SELECT count(*) FROM flyway_schema_history WHERE success", Integer.class));
+        assertEquals(7, jdbc.queryForObject("SELECT count(*) FROM flyway_schema_history WHERE success", Integer.class));
         String stored = jdbc.queryForObject("SELECT password_hash FROM users WHERE email = ?", String.class, email);
         assertNotEquals(PASSWORD, stored);
         assertTrue(BCrypt.checkpw(PASSWORD, stored));
@@ -235,7 +237,7 @@ class BlogAuthControllerTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.data.name").value("Personal Finance"))
                 .andExpect(jsonPath("$.data.slug").value(slug))
                 .andExpect(jsonPath("$.data.createdAt").exists()).andReturn();
-        return json.readTree(result.getResponse().getContentAsString()).get("data").get("id").asText();
+        return json.readTree(result.getResponse().getContentAsString()).get("data").get("id").asString();
     }
 
     @org.junit.jupiter.params.ParameterizedTest
@@ -365,6 +367,522 @@ class BlogAuthControllerTest extends AbstractIntegrationTest {
                 .andExpect(status().isConflict());
         mvc.perform(get(path + "/" + term).header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk());
+    }
+
+    Map<String, Object> postBody(String token) throws Exception {
+        grant("EDITOR");
+        String category = createTerm("/api/blog/categories", token, "cat-" + UUID.randomUUID());
+        String tag = createTerm("/api/blog/tags", token, "tag-" + UUID.randomUUID());
+        jdbc.update("DELETE FROM user_roles WHERE user_id=(SELECT id FROM users WHERE email=?) "
+                + "AND role_id=(SELECT id FROM roles WHERE name='EDITOR')", email);
+        var body = new java.util.HashMap<String, Object>();
+        body.put("title", " Budgeting ");
+        body.put("slug", "budget-" + UUID.randomUUID());
+        body.put("contentHtml", "<p>Hello <strong>Artoku</strong></p><script>alert(1)</script>"
+                + "<a href='javascript:alert(1)' onclick='alert(1)'>link</a>");
+        body.put("categoryIds", java.util.List.of(category));
+        body.put("tagIds", java.util.List.of(tag));
+        return body;
+    }
+
+    ResultActions postArticle(String token, Map<String, Object> body) throws Exception {
+        var request = post("/api/blog/posts").contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(body));
+        if (token != null) request.header("Authorization", "Bearer " + token);
+        return mvc.perform(request);
+    }
+
+    @Test void createsDraftWithTaxonomyAndSanitizedContent() throws Exception {
+        create();
+        String token = token();
+        var body = postBody(token);
+        var response = postArticle(token, body).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.title").value("Budgeting"))
+                .andExpect(jsonPath("$.data.status").value("DRAFT"))
+                .andExpect(jsonPath("$.data.readingTimeMinutes").value(1))
+                .andReturn();
+        var data = json.readTree(response.getResponse().getContentAsString()).get("data");
+        UUID id = UUID.fromString(data.get("id").asString());
+        assertFalse(data.get("contentHtml").asString().contains("script"));
+        assertFalse(data.get("contentHtml").asString().contains("onclick"));
+        assertTrue(data.get("contentHtml").asString().contains("<strong>Artoku</strong>"));
+        assertEquals(email, jdbc.queryForObject("SELECT u.email FROM posts p JOIN users u ON u.id=p.author_id WHERE p.id=?", String.class, id));
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM post_categories WHERE post_id=?", Integer.class, id));
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM post_tags WHERE post_id=?", Integer.class, id));
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM post_slug_routes WHERE post_id=?", Integer.class, id));
+        postArticle(token, body).andExpect(status().isConflict());
+    }
+
+    @Test void publishingRequiresEditorAndSetsPublicationTime() throws Exception {
+        create();
+        String token = token();
+        var body = postBody(token);
+        body.put("status", "PUBLISHED");
+        postArticle(null, body).andExpect(status().isUnauthorized());
+        postArticle("invalid", body).andExpect(status().isUnauthorized());
+        postArticle(token, body).andExpect(status().isForbidden());
+        grant("EDITOR");
+        postArticle(token, body).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.publishedAt").value(NOW.toString()));
+    }
+
+    @Test void invalidTaxonomyDoesNotLeavePartialPost() throws Exception {
+        create();
+        String token = token();
+        var body = postBody(token);
+        body.put("tagIds", java.util.List.of(UUID.randomUUID().toString()));
+        postArticle(token, body).andExpect(status().isBadRequest());
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM posts WHERE slug=?", Integer.class, body.get("slug")));
+        var ids = body.get("categoryIds");
+        body.put("tagIds", java.util.List.of());
+        body.put("categoryIds", java.util.List.of());
+        postArticle(token, body).andExpect(status().isBadRequest());
+        body.put("categoryIds", ids);
+        body.put("contentHtml", "<script>alert(1)</script>");
+        postArticle(token, body).andExpect(status().isBadRequest());
+        body.put("contentHtml", "<p>Valid</p>");
+        body.put("status", "ARCHIVED");
+        postArticle(token, body).andExpect(status().isBadRequest());
+        body.put("status", "DRAFT");
+        postArticle(token, body).andExpect(status().isCreated());
+    }
+
+    @Test void listsCmsPostsWithOffsetPaginationAndStableOrder() throws Exception {
+        create();
+        String token = token();
+        long baseline = jdbc.queryForObject("SELECT count(*) FROM posts WHERE deleted_at IS NULL", Long.class);
+        UUID author = jdbc.queryForObject("SELECT id FROM users WHERE email=?", UUID.class, email);
+        UUID first = UUID.fromString("ffffffff-ffff-4fff-bfff-ffffffffffff");
+        UUID second = UUID.fromString("ffffffff-ffff-4fff-bfff-fffffffffffe");
+        UUID deleted = UUID.randomUUID();
+        // Equal timestamps exercise deterministic UUID tie breaking; use future dates to precede other fixtures.
+        for (UUID id : java.util.List.of(first, second, deleted)) {
+            jdbc.update("""
+                    INSERT INTO posts(id,author_id,title,slug,status,published_at,created_at,deleted_at)
+                    VALUES (?,?,'CMS list',?,?,CURRENT_TIMESTAMP,'2099-01-01T00:00:00Z',?)
+                    """, id, author, "list-" + id, id.equals(first) ? "DRAFT" : "PUBLISHED",
+                    id.equals(deleted) ? java.sql.Timestamp.from(NOW) : null);
+        }
+        try {
+            mvc.perform(get("/api/blog/posts").param("limit", "1").header("Authorization", "Bearer " + token))
+                    .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
+                    .andExpect(jsonPath("$.data.length()").value(1))
+                    .andExpect(jsonPath("$.data[0].id").value(first.toString()))
+                    .andExpect(jsonPath("$.data[0].status").value("DRAFT"))
+                    .andExpect(jsonPath("$.data[0].contentHtml").doesNotExist())
+                    .andExpect(jsonPath("$.paging.skip").value(0))
+                    .andExpect(jsonPath("$.paging.limit").value(1))
+                    .andExpect(jsonPath("$.paging.totalItem").value(baseline + 2))
+                    .andExpect(jsonPath("$.paging.hasMore").value(true));
+            mvc.perform(get("/api/blog/posts").param("skip", "1").param("limit", "1")
+                            .header("Authorization", "Bearer " + token))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data[0].id").value(second.toString()))
+                    .andExpect(jsonPath("$.data[0].status").value("PUBLISHED"));
+            mvc.perform(get("/api/blog/posts").param("skip", String.valueOf(baseline + 2))
+                            .header("Authorization", "Bearer " + token))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.data.length()").value(0))
+                    .andExpect(jsonPath("$.paging.hasMore").value(false));
+            mvc.perform(get("/api/blog/posts").header("Authorization", "Bearer " + token))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.paging.limit").value(20));
+        } finally {
+            for (UUID id : java.util.List.of(first, second, deleted)) jdbc.update("DELETE FROM posts WHERE id=?", id);
+        }
+    }
+
+    @Test void listCmsPostsRequiresCmsRoleAndValidPagination() throws Exception {
+        mvc.perform(get("/api/blog/posts")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/blog/posts").header("Authorization", "Bearer invalid"))
+                .andExpect(status().isUnauthorized());
+        create();
+        String token = token();
+        for (String query : new String[]{"skip=-1", "limit=0", "limit=101", "skip=abc", "limit=abc"}) {
+            String[] pair = query.split("=");
+            mvc.perform(get("/api/blog/posts").param(pair[0], pair[1]).header("Authorization", "Bearer " + token))
+                    .andExpect(status().isBadRequest());
+        }
+        jdbc.update("DELETE FROM user_roles WHERE user_id=(SELECT id FROM users WHERE email=?)", email);
+        mvc.perform(get("/api/blog/posts").header("Authorization", "Bearer " + token))
+                .andExpect(status().isForbidden());
+    }
+
+    String draftId(String token) throws Exception {
+        var result = postArticle(token, postBody(token)).andExpect(status().isCreated()).andReturn();
+        return json.readTree(result.getResponse().getContentAsString()).get("data").get("id").asString();
+    }
+
+    ResultActions patchArticle(String token, String id, String body) throws Exception {
+        var request = patch("/api/blog/posts/" + id).contentType(MediaType.APPLICATION_JSON).content(body);
+        if (token != null) request.header("Authorization", "Bearer " + token);
+        return mvc.perform(request);
+    }
+
+    @Test void patchesOnlySuppliedFieldsAndCanClearExcerptAndTags() throws Exception {
+        create();
+        String token = token();
+        String id = draftId(token);
+        UUID uuid = UUID.fromString(id);
+        String html = jdbc.queryForObject("SELECT content_html FROM posts WHERE id=?", String.class, uuid);
+        patchArticle(token, id, json.writeValueAsString(Map.of("title", " New title ", "excerpt", "Summary")))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.title").value("New title"))
+                .andExpect(jsonPath("$.data.contentHtml").value(html))
+                .andExpect(jsonPath("$.data.categoryIds.length()").value(1))
+                .andExpect(jsonPath("$.data.tagIds.length()").value(1));
+        patchArticle(token, id, "{\"excerpt\":null,\"tagIds\":[]}")
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.excerpt").isEmpty())
+                .andExpect(jsonPath("$.data.tagIds.length()").value(0))
+                .andExpect(jsonPath("$.data.categoryIds.length()").value(1));
+        patchArticle(token, id, "{\"contentHtml\":\"<p>Updated</p><script>alert(1)</script>\"}")
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.contentHtml").value("<p>Updated</p>"));
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM post_tags WHERE post_id=?", Integer.class, uuid));
+        grant("EDITOR");
+        String replacement = createTerm("/api/blog/categories", token, "replacement-" + UUID.randomUUID());
+        patchArticle(token, id, json.writeValueAsString(Map.of("categoryIds", java.util.List.of(replacement))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.categoryIds[0]").value(replacement));
+        assertEquals(UUID.fromString(replacement), jdbc.queryForObject(
+                "SELECT category_id FROM post_categories WHERE post_id=?", UUID.class, uuid));
+        patchArticle(token, id, json.writeValueAsString(Map.of("categoryIds", java.util.List.of(replacement, replacement))))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test void patchValidatesInputAndRollsBackInvalidReferencesAndConflicts() throws Exception {
+        create();
+        String token = token();
+        String id = draftId(token);
+        for (String body : new String[]{"{}", "{\"title\":null}", "{\"title\":\" \"}",
+                "{\"categoryIds\":[]}", "{\"tagIds\":null}", "{\"status\":\"INVALID\"}",
+                "{\"contentHtml\":\"<script>alert(1)</script>\"}"}) {
+            patchArticle(token, id, body).andExpect(status().isBadRequest());
+        }
+        patchArticle(token, id, json.writeValueAsString(Map.of("title", "Must roll back",
+                        "categoryIds", java.util.List.of(UUID.randomUUID()))))
+                .andExpect(status().isBadRequest());
+        assertEquals("Budgeting", jdbc.queryForObject("SELECT title FROM posts WHERE id=?", String.class, UUID.fromString(id)));
+        String other = draftId(token);
+        String slug = jdbc.queryForObject("SELECT slug FROM posts WHERE id=?", String.class, UUID.fromString(other));
+        patchArticle(token, id, json.writeValueAsString(Map.of("slug", slug))).andExpect(status().isConflict());
+        String newSlug = "patch-" + UUID.randomUUID();
+        patchArticle(token, id, json.writeValueAsString(Map.of("slug", newSlug))).andExpect(status().isOk());
+        assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM post_slug_routes WHERE post_id=?", Integer.class, UUID.fromString(id)));
+        patchArticle(token, UUID.randomUUID().toString(), "{\"title\":\"Missing\"}")
+                .andExpect(status().isNotFound());
+        jdbc.update("UPDATE posts SET deleted_at=CURRENT_TIMESTAMP WHERE id=?", UUID.fromString(id));
+        patchArticle(token, id, "{\"title\":\"Deleted\"}").andExpect(status().isNotFound());
+    }
+
+    @Test void patchRequiresOwnershipAndEditorToPublish() throws Exception {
+        create();
+        String token = token();
+        String id = draftId(token);
+        patchArticle(null, id, "{\"title\":\"No token\"}").andExpect(status().isUnauthorized());
+        patchArticle(token, id, "{\"status\":\"PUBLISHED\"}").andExpect(status().isForbidden());
+        email = UUID.randomUUID() + "@example.com";
+        create();
+        String otherToken = token();
+        patchArticle(otherToken, id, "{\"title\":\"Other author\"}").andExpect(status().isForbidden());
+        grant("EDITOR");
+        patchArticle(otherToken, id, "{\"status\":\"PUBLISHED\"}")
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.publishedAt").value(NOW.toString()));
+        patchArticle(token, id, "{\"title\":\"Published edit\"}").andExpect(status().isForbidden());
+        when(clock.instant()).thenReturn(NOW.plusSeconds(60));
+        patchArticle(otherToken, id, "{\"title\":\"Editor update\"}")
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.publishedAt").value(NOW.toString()));
+        patchArticle(otherToken, id, "{\"status\":\"ARCHIVED\"}")
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.publishedAt").value(NOW.toString()));
+        patchArticle(otherToken, id, "{\"status\":\"PUBLISHED\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.publishedAt").value(NOW.plusSeconds(60).toString()));
+    }
+
+    ResultActions detailArticle(String token, String id) throws Exception {
+        var request = get("/api/blog/posts/" + id);
+        if (token != null) request.header("Authorization", "Bearer " + token);
+        return mvc.perform(request);
+    }
+
+    @Test void detailReturnsFullPostForEveryStatusAndReflectsPatch() throws Exception {
+        create();
+        String token = token();
+        String id = draftId(token);
+        for (String state : new String[]{"DRAFT", "PUBLISHED", "ARCHIVED"}) {
+            jdbc.update("UPDATE posts SET status=?,published_at=? WHERE id=?",
+                    state, java.sql.Timestamp.from(NOW), UUID.fromString(id));
+            detailArticle(token, id).andExpect(status().isOk())
+                    .andExpect(header().string("Cache-Control", "no-store"))
+                    .andExpect(jsonPath("$.data.id").value(id))
+                    .andExpect(jsonPath("$.data.title").value("Budgeting"))
+                    .andExpect(jsonPath("$.data.status").value(state))
+                    .andExpect(jsonPath("$.data.contentHtml").isNotEmpty())
+                    .andExpect(jsonPath("$.data.categoryIds.length()").value(1))
+                    .andExpect(jsonPath("$.data.tagIds.length()").value(1))
+                    .andExpect(jsonPath("$.data.authorId").isNotEmpty())
+                    .andExpect(jsonPath("$.data.createdAt").isNotEmpty())
+                    .andExpect(jsonPath("$.data.updatedAt").isNotEmpty());
+        }
+        grant("EDITOR");
+        patchArticle(token, id, "{\"title\":\"After edit\",\"tagIds\":[]}").andExpect(status().isOk());
+        detailArticle(token, id).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.title").value("After edit"))
+                .andExpect(jsonPath("$.data.tagIds.length()").value(0));
+    }
+
+    @Test void detailEnforcesCmsAuthenticationOwnershipAndMissingPosts() throws Exception {
+        create();
+        String ownerToken = token();
+        String id = draftId(ownerToken);
+        detailArticle(null, id).andExpect(status().isUnauthorized());
+        detailArticle("invalid-token", id).andExpect(status().isUnauthorized());
+        detailArticle(ownerToken, "invalid-id").andExpect(status().isBadRequest());
+        detailArticle(ownerToken, UUID.randomUUID().toString()).andExpect(status().isNotFound());
+        email = UUID.randomUUID() + "@example.com";
+        create();
+        String otherToken = token();
+        detailArticle(otherToken, id).andExpect(status().isForbidden());
+        grant("EDITOR");
+        detailArticle(otherToken, id).andExpect(status().isOk());
+        jdbc.update("DELETE FROM user_roles WHERE user_id=(SELECT id FROM users WHERE email=?)", email);
+        grant("ADMIN");
+        detailArticle(otherToken, id).andExpect(status().isOk());
+        jdbc.update("DELETE FROM user_roles WHERE user_id=(SELECT id FROM users WHERE email=?)", email);
+        detailArticle(otherToken, id).andExpect(status().isForbidden());
+        jdbc.update("UPDATE posts SET deleted_at=CURRENT_TIMESTAMP WHERE id=?", UUID.fromString(id));
+        detailArticle(ownerToken, id).andExpect(status().isNotFound());
+    }
+
+    ResultActions deleteArticle(String token, String id) throws Exception {
+        var request = delete("/api/blog/posts/" + id);
+        if (token != null) request.header("Authorization", "Bearer " + token);
+        return mvc.perform(request);
+    }
+
+    @Test void softDeleteRetainsDataAndHidesPostFromCms() throws Exception {
+        create();
+        String token = token();
+        String id = draftId(token);
+        UUID uuid = UUID.fromString(id);
+        String html = jdbc.queryForObject("SELECT content_html FROM posts WHERE id=?", String.class, uuid);
+        jdbc.update("UPDATE posts SET scheduled_at=? WHERE id=?", java.sql.Timestamp.from(NOW.plusSeconds(3600)), uuid);
+        long total = jdbc.queryForObject("SELECT count(*) FROM posts WHERE deleted_at IS NULL", Long.class);
+        deleteArticle(token, id).andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.message").value("Blog post deleted successfully"));
+        assertEquals(NOW, jdbc.queryForObject("SELECT deleted_at FROM posts WHERE id=?", java.sql.Timestamp.class, uuid).toInstant());
+        assertEquals(html, jdbc.queryForObject("SELECT content_html FROM posts WHERE id=?", String.class, uuid));
+        assertNull(jdbc.queryForObject("SELECT scheduled_at FROM posts WHERE id=?", java.sql.Timestamp.class, uuid));
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM post_categories WHERE post_id=?", Integer.class, uuid));
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM post_tags WHERE post_id=?", Integer.class, uuid));
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM post_slug_routes WHERE post_id=?", Integer.class, uuid));
+        mvc.perform(get("/api/blog/posts").header("Authorization", "Bearer " + token).param("limit", "100"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.paging.totalItem").value(total - 1))
+                .andExpect(jsonPath("$.data[*].id", org.hamcrest.Matchers.not(org.hamcrest.Matchers.hasItem(id))));
+        detailArticle(token, id).andExpect(status().isNotFound());
+        patchArticle(token, id, "{\"title\":\"Deleted\"}").andExpect(status().isNotFound());
+        deleteArticle(token, id).andExpect(status().isNotFound());
+    }
+
+    @Test void softDeleteRejectsInvalidSessionsRolesAndOtherAuthors() throws Exception {
+        create();
+        String ownerToken = token();
+        String id = draftId(ownerToken);
+        deleteArticle(null, id).andExpect(status().isUnauthorized());
+        deleteArticle("invalid-token", id).andExpect(status().isUnauthorized());
+        deleteArticle(ownerToken, "invalid-id").andExpect(status().isBadRequest());
+        deleteArticle(ownerToken, UUID.randomUUID().toString()).andExpect(status().isNotFound());
+        email = UUID.randomUUID() + "@example.com";
+        create();
+        String otherToken = token();
+        deleteArticle(otherToken, id).andExpect(status().isForbidden());
+        jdbc.update("DELETE FROM user_roles WHERE user_id=(SELECT id FROM users WHERE email=?)", email);
+        deleteArticle(otherToken, id).andExpect(status().isForbidden());
+        assertNull(jdbc.queryForObject("SELECT deleted_at FROM posts WHERE id=?", java.sql.Timestamp.class, UUID.fromString(id)));
+        detailArticle(ownerToken, id).andExpect(status().isOk());
+    }
+
+    @Test void softDeleteRequiresEditorOrAdminForPublishedAndArchivedPosts() throws Exception {
+        create();
+        String token = token();
+        for (String role : new String[]{"EDITOR", "ADMIN"}) {
+            for (String state : new String[]{"DRAFT", "PUBLISHED", "ARCHIVED"}) {
+                jdbc.update("DELETE FROM user_roles WHERE user_id=(SELECT id FROM users WHERE email=?) "
+                        + "AND role_id IN (SELECT id FROM roles WHERE name IN ('ADMIN','EDITOR'))", email);
+                String id = draftId(token);
+                jdbc.update("UPDATE posts SET status=?,published_at=? WHERE id=?", state,
+                        java.sql.Timestamp.from(NOW), UUID.fromString(id));
+                if (!state.equals("DRAFT")) {
+                    deleteArticle(token, id).andExpect(status().isForbidden());
+                    assertNull(jdbc.queryForObject("SELECT deleted_at FROM posts WHERE id=?", java.sql.Timestamp.class, UUID.fromString(id)));
+                }
+                grant(role);
+                deleteArticle(token, id).andExpect(status().isOk());
+            }
+        }
+    }
+
+    @Test void publicArticlesOnlyExposeVisiblePublishedPostsWithoutCmsFields() throws Exception {
+        create();
+        String token = token();
+        String id = draftId(token);
+        UUID uuid = UUID.fromString(id);
+        String slug = jdbc.queryForObject("SELECT slug FROM posts WHERE id=?", String.class, uuid);
+        String path = "/api/blog/published/" + slug;
+        mvc.perform(get(path)).andExpect(status().isNotFound());
+        jdbc.update("UPDATE posts SET status='PUBLISHED',published_at=? WHERE id=?",
+                java.sql.Timestamp.from(NOW.plusSeconds(60)), uuid);
+        mvc.perform(get(path)).andExpect(status().isNotFound());
+        mvc.perform(get("/api/blog/published").param("limit", "100"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[*].id", org.hamcrest.Matchers.not(org.hamcrest.Matchers.hasItem(id))));
+        jdbc.update("UPDATE posts SET published_at=? WHERE id=?", java.sql.Timestamp.from(NOW), uuid);
+        mvc.perform(get(path)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(id))
+                .andExpect(jsonPath("$.data.slug").value(slug))
+                .andExpect(jsonPath("$.data.contentHtml").isNotEmpty())
+                .andExpect(jsonPath("$.data.categories[0].name").isNotEmpty())
+                .andExpect(jsonPath("$.data.categories[0].slug").isNotEmpty())
+                .andExpect(jsonPath("$.data.tags[0].name").isNotEmpty())
+                .andExpect(jsonPath("$.data.authorId").doesNotExist())
+                .andExpect(jsonPath("$.data.status").doesNotExist());
+        long total = jdbc.queryForObject("SELECT count(*) FROM posts WHERE status='PUBLISHED' AND deleted_at IS NULL AND published_at<=?",
+                Long.class, java.sql.Timestamp.from(NOW));
+        mvc.perform(get("/api/blog/published").param("limit", "100"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.paging.totalItem").value(total))
+                .andExpect(jsonPath("$.data[*].id", org.hamcrest.Matchers.hasItem(id)))
+                .andExpect(jsonPath("$.data[0].contentHtml").doesNotExist())
+                .andExpect(jsonPath("$.data[0].authorId").doesNotExist());
+        mvc.perform(get("/api/blog/published").param("skip", String.valueOf(total)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.length()").value(0))
+                .andExpect(jsonPath("$.paging.hasMore").value(false));
+        jdbc.update("UPDATE posts SET status='ARCHIVED' WHERE id=?", uuid);
+        mvc.perform(get(path)).andExpect(status().isNotFound());
+        jdbc.update("UPDATE posts SET status='PUBLISHED',deleted_at=CURRENT_TIMESTAMP WHERE id=?", uuid);
+        mvc.perform(get(path)).andExpect(status().isNotFound());
+        mvc.perform(get("/api/blog/published").param("limit", "100"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.paging.totalItem").value(total - 1))
+                .andExpect(jsonPath("$.data[*].id", org.hamcrest.Matchers.not(org.hamcrest.Matchers.hasItem(id))));
+        mvc.perform(get("/api/blog/published/missing-article")).andExpect(status().isNotFound());
+    }
+
+    @Test void publicArticlesValidatePaginationAndLeaveCmsAuthenticated() throws Exception {
+        mvc.perform(get("/api/blog/published").param("skip", "-1")).andExpect(status().isBadRequest());
+        for (String limit : new String[]{"0", "101", "invalid"}) {
+            mvc.perform(get("/api/blog/published").param("limit", limit)).andExpect(status().isBadRequest());
+        }
+        String id = UUID.randomUUID().toString();
+        mvc.perform(get("/api/blog/posts")).andExpect(status().isUnauthorized());
+        detailArticle(null, id).andExpect(status().isUnauthorized());
+        patchArticle(null, id, "{\"title\":\"Unauthorized\"}").andExpect(status().isUnauthorized());
+        deleteArticle(null, id).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/blog/categories")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/blog/tags")).andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/blog/published")).andExpect(status().isMethodNotAllowed());
+        mvc.perform(delete("/api/blog/published/example")).andExpect(status().isMethodNotAllowed());
+    }
+
+    @Test void publicArticleCorsAllowsMainWebsiteReadOnly() throws Exception {
+        mvc.perform(get("/api/blog/published").header("Origin", "https://www.myartoku.com"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "https://www.myartoku.com"));
+        mvc.perform(get("/api/blog/published/missing-article").header("Origin", "https://www.myartoku.com"))
+                .andExpect(status().isNotFound())
+                .andExpect(header().string("Access-Control-Allow-Origin", "https://www.myartoku.com"));
+        mvc.perform(options("/api/blog/published").header("Origin", "https://www.myartoku.com")
+                        .header("Access-Control-Request-Method", "GET"))
+                .andExpect(status().isOk()).andExpect(header().string("Access-Control-Allow-Methods", "GET,OPTIONS"));
+        mvc.perform(options("/api/blog/published").header("Origin", "https://www.myartoku.com")
+                        .header("Access-Control-Request-Method", "POST"))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/blog/published").header("Origin", "https://untrusted.example"))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/blog/posts").header("Origin", "https://www.myartoku.com"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test void createsPostWithSameSlugAfterSoftDeleteAndStillRejectsActiveDuplicates() throws Exception {
+        create();
+        String token = token();
+        var body = postBody(token);
+        var created = postArticle(token, body).andExpect(status().isCreated()).andReturn();
+        String oldId = json.readTree(created.getResponse().getContentAsString()).get("data").get("id").asString();
+        postArticle(token, body).andExpect(status().isConflict());
+        deleteArticle(token, oldId).andExpect(status().isOk());
+        var replacement = postArticle(token, body).andExpect(status().isCreated()).andReturn();
+        String newId = json.readTree(replacement.getResponse().getContentAsString()).get("data").get("id").asString();
+        assertNotEquals(oldId, newId);
+        assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM posts WHERE slug=?", Integer.class, body.get("slug")));
+        assertEquals(UUID.fromString(newId), jdbc.queryForObject("SELECT post_id FROM post_slug_routes WHERE slug=?", UUID.class, body.get("slug")));
+        detailArticle(token, oldId).andExpect(status().isNotFound());
+        detailArticle(token, newId).andExpect(status().isOk());
+        postArticle(token, body).andExpect(status().isConflict());
+        grant("EDITOR");
+        patchArticle(token, newId, "{\"status\":\"PUBLISHED\"}").andExpect(status().isOk());
+        mvc.perform(get("/api/blog/published/" + body.get("slug"))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(newId));
+    }
+
+    @Test void deletionReleasesHistoricalSlugsForCreateAndPatch() throws Exception {
+        create();
+        String token = token();
+        var body = postBody(token);
+        var created = postArticle(token, body).andExpect(status().isCreated()).andReturn();
+        String id = json.readTree(created.getResponse().getContentAsString()).get("data").get("id").asString();
+        String renamed = "renamed-" + UUID.randomUUID();
+        patchArticle(token, id, json.writeValueAsString(Map.of("slug", renamed))).andExpect(status().isOk());
+        postArticle(token, body).andExpect(status().isConflict());
+        String otherId = draftId(token);
+        patchArticle(token, otherId, json.writeValueAsString(Map.of("slug", renamed))).andExpect(status().isConflict());
+        deleteArticle(token, id).andExpect(status().isOk());
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM post_slug_routes WHERE post_id=?", Integer.class, UUID.fromString(id)));
+        postArticle(token, body).andExpect(status().isCreated());
+        patchArticle(token, otherId, json.writeValueAsString(Map.of("slug", renamed))).andExpect(status().isOk());
+        assertEquals(renamed, jdbc.queryForObject("SELECT slug FROM posts WHERE id=?", String.class, UUID.fromString(id)));
+    }
+
+    @Test void migrationReleasesSlugsOfPostsDeletedBeforeVersionSeven() {
+        String schema = "slug_upgrade_" + UUID.randomUUID().toString().replace("-", "");
+        var source = new org.springframework.jdbc.datasource.DriverManagerDataSource(
+                BLOG.getJdbcUrl() + (BLOG.getJdbcUrl().contains("?") ? "&" : "?") + "currentSchema=" + schema,
+                BLOG.getUsername(), BLOG.getPassword());
+        Flyway.configure().dataSource(source).schemas(schema).defaultSchema(schema)
+                .locations("classpath:db/blog-migration").target("6").load().migrate();
+        var legacy = new JdbcTemplate(source);
+        UUID author = UUID.randomUUID();
+        UUID deleted = UUID.randomUUID();
+        legacy.update("INSERT INTO users(id,display_name,email,password_hash) VALUES (?,'Author','legacy@example.com','hash')", author);
+        legacy.update("INSERT INTO posts(id,author_id,title,slug) VALUES (?,?,'Legacy','legacy-original')", deleted, author);
+        legacy.update("UPDATE posts SET slug='legacy-current',deleted_at=CURRENT_TIMESTAMP WHERE id=?", deleted);
+        assertEquals(2, legacy.queryForObject("SELECT count(*) FROM post_slug_routes", Integer.class));
+        Flyway.configure().dataSource(source).schemas(schema).defaultSchema(schema)
+                .locations("classpath:db/blog-migration").load().migrate();
+        assertEquals(0, legacy.queryForObject("SELECT count(*) FROM post_slug_routes", Integer.class));
+        for (String slug : new String[]{"legacy-original", "legacy-current"}) {
+            legacy.update("INSERT INTO posts(id,author_id,title,slug) VALUES (?,?,'New',?)", UUID.randomUUID(), author, slug);
+        }
+        assertEquals(3, legacy.queryForObject("SELECT count(*) FROM posts", Integer.class));
+        assertNotNull(legacy.queryForObject("SELECT deleted_at FROM posts WHERE id=?", java.sql.Timestamp.class, deleted));
+        assertThrows(org.springframework.dao.DuplicateKeyException.class, () ->
+                legacy.update("UPDATE posts SET deleted_at=NULL WHERE id=?", deleted));
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"https://cms.myartoku.com", "http://localhost:30001"})
+    void cmsCorsAllowsDashboardOriginsAndStillRequiresToken(String origin) throws Exception {
+        for (String method : new String[]{"GET", "POST", "PATCH", "DELETE"}) {
+            mvc.perform(options("/api/blog/posts/" + UUID.randomUUID())
+                            .header("Origin", origin)
+                            .header("Access-Control-Request-Method", method)
+                            .header("Access-Control-Request-Headers", "authorization,content-type"))
+                    .andExpect(status().isOk())
+                    .andExpect(header().string("Access-Control-Allow-Origin", origin));
+        }
+        mvc.perform(get("/api/blog/posts").header("Origin", origin))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string("Access-Control-Allow-Origin", origin));
+        mvc.perform(options("/api/blog/auth/login").header("Origin", origin)
+                        .header("Access-Control-Request-Method", "POST")
+                        .header("Access-Control-Request-Headers", "content-type"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", origin));
     }
 
 }

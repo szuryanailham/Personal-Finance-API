@@ -1,4 +1,11 @@
-package com.ilham.personal_finance_api.blog;
+package com.ilham.personal_finance_api.blog.controller;
+
+import com.ilham.personal_finance_api.blog.service.BlogAuthService;
+
+import com.ilham.personal_finance_api.blog.dto.BlogLoginRequest;
+import com.ilham.personal_finance_api.blog.dto.BlogLoginResponse;
+import com.ilham.personal_finance_api.blog.dto.BlogRegisterRequest;
+import com.ilham.personal_finance_api.blog.dto.BlogUserResponse;
 
 import jakarta.validation.Valid;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -7,7 +14,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import com.ilham.personal_finance_api.dto.WebResponse;
-import static com.ilham.personal_finance_api.blog.BlogAuthModels.*;
 
 @RestController
 @RequestMapping("/api/blog/auth")
@@ -18,18 +24,18 @@ public class BlogAuthController {
     public BlogAuthController(BlogAuthService auth) { this.auth = auth; }
 
     @PostMapping("/register")
-    public ResponseEntity<WebResponse<UserResponse>> register(@Valid @RequestBody RegisterRequest request,
+    public ResponseEntity<WebResponse<BlogUserResponse>> register(@Valid @RequestBody BlogRegisterRequest request,
             @RequestHeader(value = "X-Blog-Registration-Key", required = false) String key) {
         return response(HttpStatus.CREATED, auth.register(request, key));
     }
 
     @PostMapping("/login")
-    public ResponseEntity<WebResponse<LoginResponse>> login(@Valid @RequestBody LoginRequest request) {
+    public ResponseEntity<WebResponse<BlogLoginResponse>> login(@Valid @RequestBody BlogLoginRequest request) {
         return response(HttpStatus.OK, auth.login(request));
     }
 
     @GetMapping("/me")
-    public ResponseEntity<WebResponse<UserResponse>> me(
+    public ResponseEntity<WebResponse<BlogUserResponse>> me(
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization) {
         return response(HttpStatus.OK, auth.me(authorization));
     }

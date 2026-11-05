@@ -11,13 +11,13 @@ blog tidak sama dengan identitas pengguna Artoku walaupun alamat email sama.
 
 Repo saat ini memakai Java 21 dan Spring Boot **4.1.1**, bukan Boot 3 dalam brief.
 Migration SQL ini tidak bergantung pada versi Boot. Migration keuangan V1–V9
-tetap pada `db/migration`; blog memakai `db/blog-migration` V1–V6. Jangan
+tetap pada `db/migration`; blog memakai `db/blog-migration` V1–V7. Jangan
 menggabungkan kedua lokasi dalam satu instance Flyway.
 
 MVP inti: users, roles, user_roles, posts, categories, tags, kedua junction,
 post_seo_metadata, media, dan post_slug_routes. Visitor tracking menggunakan tool analitik eksternal tanpa tabel statistik lokal.
 Revisi juga opsional untuk rilis awal; schema disiapkan agar tidak perlu merombak
-artikel. Paket lengkap menjalankan keenam migration secara berurutan. Jangan
+artikel. Paket lengkap menjalankan ketujuh migration secara berurutan. Jangan
 menghapus migration yang sudah diterapkan untuk menonaktifkan fitur.
 
 Tidak ditambahkan permission matrix, event mentah, visitor profiles, folder media,
@@ -195,11 +195,12 @@ Robots boolean menghindari kombinasi index/noindex yang kontradiktif; fallback t
 Noindex berbeda dari status publikasi dan bukan mekanisme keamanan.
 
 Slug baru otomatis masuk route lewat trigger. Slug historis dimiliki artikel yang
-sama selamanya selama artikel belum dihapus permanen. Aplikasi membaca route,
+sama selama artikel belum di-soft delete. V7 melepaskan seluruh reservasi slug
+artikel saat soft delete agar bisa dipakai ulang. Aplikasi membaca route,
 memeriksa kelayakan publikasi, lalu mengirim 301 langsung ke slug saat ini atau
 200 bila sama. Route tidak menyimpan target URL sehingga tidak membuat rantai
-redirect atau open redirect. Batasi role runtime: jangan izinkan aplikasi mengubah
-atau menghapus route secara langsung. Slug kategori/tag sebaiknya stabil di MVP;
+redirect atau open redirect. Role runtime memerlukan DELETE pada route untuk
+trigger soft delete; endpoint tidak mengekspos pengelolaan route langsung. Slug kategori/tag sebaiknya stabil di MVP;
 redirect taksonomi dapat ditambahkan jika pengubahan URL tersebut diperlukan.
 
 Sanitasi HTML sebelum penyimpanan/render; escape JSON-LD dan metadata pada output.
@@ -253,10 +254,11 @@ flyway -configFiles=docs/blog-flyway.conf.example validate
 
 Periksa host/database tujuan sebelum migrate. Kredensial blog tidak boleh mempunyai
 akses database keuangan. Setiap database mempunyai flyway_schema_history sendiri;
-nomor V1–V6 blog tidak berhubungan dengan nomor migration keuangan.
+nomor V1–V7 blog tidak berhubungan dengan nomor migration keuangan.
 
 V1–V5 mendefinisikan konten CMS; V6 menambahkan blog_auth_sessions untuk
-sesi login CMS. V1–V5 yang sudah diterapkan tidak diubah.
+sesi login CMS; V7 mengizinkan pemakaian ulang slug setelah soft delete.
+Migration lama yang sudah diterapkan tidak diubah.
 
 Runtime CMS sekarang tersedia sebagai modul opsional pada aplikasi yang sama.
 Lihat [konfigurasi dan kontrak autentikasi CMS](blog-auth-api.md).
@@ -275,9 +277,18 @@ integrasi masa depan dengan kontrak identitas yang eksplisit.
 
 ## Artefak dan referensi
 
-- Schema lengkap: [V1–V6](../src/main/resources/db/blog-migration/).
+- Schema lengkap: [V1–V7](../src/main/resources/db/blog-migration/).
 - [Query publik, related posts, dan laporan publikasi](blog-queries.sql).
 - [Konfigurasi Flyway CLI](blog-flyway.conf.example).
 - [PostgreSQL constraints](https://www.postgresql.org/docs/18/ddl-constraints.html).
 - [Flyway locations](https://documentation.red-gate.com/flyway/reference/configuration/flyway-namespace/flyway-locations-setting).
 - [Flyway CLI](https://documentation.red-gate.com/flyway/reference/usage/command-line).
+
+### Slug dan soft delete (V7)
+
+Unique index `uq_posts_active_slug` membatasi slug pada baris dengan deleted_at IS NULL.
+Soft delete mempertahankan nilai slug dan konten pada posts, tetapi melepaskan seluruh
+post_slug_routes milik artikel tersebut. V7 juga membersihkan reservasi data terhapus
+sebelumnya. Slug historis post yang belum dihapus tetap direservasi. Pemulihan artikel
+harus memvalidasi ulang slug karena slugnya mungkin sudah dipakai post lain.
+Role runtime trigger membutuhkan SELECT, INSERT, DELETE pada post_slug_routes.
