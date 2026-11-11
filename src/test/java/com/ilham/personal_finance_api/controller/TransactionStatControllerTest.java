@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -160,6 +161,10 @@ private MockHttpServletRequestBuilder statRequest(String... params) {
 private TransactionStateResponse getStatOk(String... params) throws Exception {
     String content = mockMvc.perform(statRequest(params))
         .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.totalBalance.changePercentage").doesNotExist())
+        .andExpect(jsonPath("$.data.totalIncome.changePercentage").doesNotExist())
+        .andExpect(jsonPath("$.data.totalExpense.changePercentage").doesNotExist())
+        .andExpect(jsonPath("$.data.totalSaving.changePercentage").doesNotExist())
         .andReturn().getResponse().getContentAsString();
 
     WebResponse<TransactionStateResponse> response = objectMapper.readValue(
@@ -168,6 +173,8 @@ private TransactionStateResponse getStatOk(String... params) throws Exception {
     );
     assertNull(response.getErrors());
     assertNotNull(response.getData());
+    assertNotNull(response.getData().getStartDate());
+    assertNotNull(response.getData().getEndDate());
     return response.getData();
 }
 
@@ -193,19 +200,20 @@ private void completeFinancialSetup(String token, String balance, String savings
         .andExpect(status().isOk());
 }
 
-private void assertStatistic(TransactionStateResponse.Statistic statistic, String amount, String changePercentage) {
+private void assertStatistic(TransactionStateResponse.Statistic statistic, String amount) {
+    assertNotNull(statistic);
+    assertNotNull(statistic.getAmount());
     assertEquals(0, new BigDecimal(amount).compareTo(statistic.getAmount()), "amount");
-    assertEquals(0, new BigDecimal(changePercentage).compareTo(statistic.getChangePercentage()), "changePercentage");
 }
 
-// Sep 2026 vs Agu 2026
-private void assertSeptemberVsAugust(TransactionStateResponse data) {
-    assertStatistic(data.getTotalIncome(), "12100000", "21.00");
-    assertStatistic(data.getTotalExpense(), "2000000", "-13.04");
-    // saldo SAVINGS akhir Sep 2.500.000 vs akhir Agu 1.000.000
-    assertStatistic(data.getTotalSaving(), "2500000", "150.00");
-    // saldo MAIN akhir Sep 17.800.000 vs akhir Agu 7.700.000
-    assertStatistic(data.getTotalBalance(), "17800000", "131.17");
+// Total September 2026
+private void assertSeptemberTotals(TransactionStateResponse data) {
+    assertStatistic(data.getTotalIncome(), "12100000");
+    assertStatistic(data.getTotalExpense(), "2000000");
+    // saldo SAVINGS akhir Sep 2.500.000
+    assertStatistic(data.getTotalSaving(), "2500000");
+    // saldo MAIN akhir Sep 17.800.000
+    assertStatistic(data.getTotalBalance(), "17800000");
 }
 
 
@@ -213,29 +221,29 @@ private void assertSeptemberVsAugust(TransactionStateResponse data) {
 
 @Test
 void testGetStatDefaultTypeIsMonthly() throws Exception {
-    assertSeptemberVsAugust(getStatOk());
+    assertSeptemberTotals(getStatOk());
 }
 
 @Test
 void testGetStatDefaultTypeWithBlankType() throws Exception {
-    assertSeptemberVsAugust(getStatOk("type", ""));
+    assertSeptemberTotals(getStatOk("type", ""));
 }
 
 @Test
 void testGetStatMonthly() throws Exception {
-    assertSeptemberVsAugust(getStatOk("type", "MONTHLY"));
+    assertSeptemberTotals(getStatOk("type", "MONTHLY"));
 }
 
 @Test
 void testGetStatTypeCaseInsensitive() throws Exception {
-    assertSeptemberVsAugust(getStatOk("type", "monthly"));
-    assertSeptemberVsAugust(getStatOk("type", " Monthly "));
+    assertSeptemberTotals(getStatOk("type", "monthly"));
+    assertSeptemberTotals(getStatOk("type", " Monthly "));
 }
 
 @Test
 void testGetStatMonthlyIgnoresStartDateAndEndDate() throws Exception {
     // startDate/endDate hanya dipakai untuk CUSTOM
-    assertSeptemberVsAugust(getStatOk(
+    assertSeptemberTotals(getStatOk(
         "type", "MONTHLY",
         "startDate", "2026-12-01",
         "endDate", "2026-12-31"
@@ -244,62 +252,64 @@ void testGetStatMonthlyIgnoresStartDateAndEndDate() throws Exception {
 
 @Test
 void testGetStatWithoutTypeIgnoresStartDateAndEndDate() throws Exception {
-    assertSeptemberVsAugust(getStatOk("startDate", "2026-12-01", "endDate", "2026-12-31"));
+    assertSeptemberTotals(getStatOk("startDate", "2026-12-01", "endDate", "2026-12-31"));
 }
 
 @Test
 void testGetStatMonthlyPeriodBoundary() throws Exception {
     TransactionStateResponse data = getStatOk("type", "MONTHLY");
 
+    assertEquals(LocalDateTime.of(2026, 9, 1, 0, 0), data.getStartDate());
+    assertEquals(LocalDateTime.of(2026, 10, 1, 0, 0), data.getEndDate());
+
     // 09-01 00:00 & 09-30 23:59:59 masuk, 10-01 00:00 tidak masuk
-    assertStatistic(data.getTotalIncome(), "12100000", "21.00");
-    // 08-31 23:59:59 tidak masuk September, tapi masuk pembanding Agustus (2.300.000)
-    assertStatistic(data.getTotalExpense(), "2000000", "-13.04");
+    assertStatistic(data.getTotalIncome(), "12100000");
+    assertStatistic(data.getTotalExpense(), "2000000");
 }
 
 @Test
 void testGetStatExcludeSoftDeletedTransaction() throws Exception {
     // transaksi 999.000 yang di-soft delete tidak ikut dihitung
-    assertStatistic(getStatOk().getTotalExpense(), "2000000", "-13.04");
+    assertStatistic(getStatOk().getTotalExpense(), "2000000");
 }
 
 @Test
 void testGetStatExcludeOtherUserTransaction() throws Exception {
     // income 7.000.000 milik user B tidak ikut dihitung
-    assertStatistic(getStatOk().getTotalIncome(), "12100000", "21.00");
+    assertStatistic(getStatOk().getTotalIncome(), "12100000");
 }
 
 @Test
 void testGetStatSavingDoesNotAffectMainBalance() throws Exception {
     // totalBalance hanya akun MAIN: 10.000.000 - 2.300.000 + 12.100.000 - 2.000.000 (saving tidak ikut)
-    assertStatistic(getStatOk().getTotalBalance(), "17800000", "131.17");
+    assertStatistic(getStatOk().getTotalBalance(), "17800000");
 }
 
 @Test
-void testGetStatNegativePercentage() throws Exception {
+void testGetStatExpenseIncludesOnlySelectedPeriod() throws Exception {
     transactionRepository.deleteAll();
     createTransaction(user, makanan, "1000000", LocalDateTime.of(2026, 8, 10, 10, 0), false);
     createTransaction(user, makanan, "750000", LocalDateTime.of(2026, 9, 10, 10, 0), false);
 
-    assertStatistic(getStatOk().getTotalExpense(), "750000", "-25.00");
+    assertStatistic(getStatOk().getTotalExpense(), "750000");
 }
 
 @Test
-void testGetStatPercentageRoundDown() throws Exception {
+void testGetStatIncomeExcludesPreviousMonth() throws Exception {
     transactionRepository.deleteAll();
     createTransaction(user, gaji, "300000", LocalDateTime.of(2026, 8, 10, 10, 0), false);
     createTransaction(user, gaji, "400000", LocalDateTime.of(2026, 9, 10, 10, 0), false);
 
-    assertStatistic(getStatOk().getTotalIncome(), "400000", "33.33");
+    assertStatistic(getStatOk().getTotalIncome(), "400000");
 }
 
 @Test
-void testGetStatPercentageRoundUp() throws Exception {
+void testGetStatIncomePreservesDecimalPrecision() throws Exception {
     transactionRepository.deleteAll();
-    createTransaction(user, gaji, "600000", LocalDateTime.of(2026, 8, 10, 10, 0), false);
-    createTransaction(user, gaji, "700000", LocalDateTime.of(2026, 9, 10, 10, 0), false);
+    createTransaction(user, gaji, "600000.12", LocalDateTime.of(2026, 8, 10, 10, 0), false);
+    createTransaction(user, gaji, "700000.67", LocalDateTime.of(2026, 9, 10, 10, 0), false);
 
-    assertStatistic(getStatOk().getTotalIncome(), "700000", "16.67");
+    assertStatistic(getStatOk().getTotalIncome(), "700000.67");
 }
 
 @Test
@@ -309,18 +319,18 @@ void testGetStatNegativeBalanceShownAsDeficit() throws Exception {
     createTransaction(user, tagihan, "3000000", LocalDateTime.of(2026, 9, 11, 10, 0), false);
 
     // balance defisit -2.000.000 tetap ditampilkan negatif, bulan lalu kosong
-    assertStatistic(getStatOk().getTotalBalance(), "-2000000", "-100.00");
+    assertStatistic(getStatOk().getTotalBalance(), "-2000000");
 }
 
 @Test
-void testGetStatPreviousBalanceNegative() throws Exception {
+void testGetStatIncomeReducesExistingDeficit() throws Exception {
     transactionRepository.deleteAll();
     createTransaction(user, gaji, "1000000", LocalDateTime.of(2026, 8, 10, 10, 0), false);
     createTransaction(user, tagihan, "3000000", LocalDateTime.of(2026, 8, 11, 10, 0), false);
     createTransaction(user, gaji, "1000000", LocalDateTime.of(2026, 9, 10, 10, 0), false);
 
-    // saldo akhir Sep -1.000.000 vs akhir Agu -2.000.000: (-1.000.000 - (-2.000.000)) / |-2.000.000|
-    assertStatistic(getStatOk().getTotalBalance(), "-1000000", "50.00");
+    // saldo akhir Sep -1.000.000
+    assertStatistic(getStatOk().getTotalBalance(), "-1000000");
 }
 
 @Test
@@ -329,7 +339,7 @@ void testGetStatDecimalAmount() throws Exception {
     createTransaction(user, gaji, "100.50", LocalDateTime.of(2026, 9, 10, 10, 0), false);
     createTransaction(user, gaji, "200.25", LocalDateTime.of(2026, 9, 11, 10, 0), false);
 
-    assertStatistic(getStatOk().getTotalIncome(), "300.75", "100.00");
+    assertStatistic(getStatOk().getTotalIncome(), "300.75");
 }
 
 @Test
@@ -340,8 +350,8 @@ void testGetStatCategoryTypeChangeAffectsHistory() throws Exception {
     TransactionStateResponse data = getStatOk();
 
     // transaksi Investasi 1.500.000 (Sep) & 1.000.000 (Agu) pindah dari saving ke expense
-    assertStatistic(data.getTotalExpense(), "3500000", "6.06");
-    assertStatistic(data.getTotalSaving(), "0", "0.00");
+    assertStatistic(data.getTotalExpense(), "3500000");
+    assertStatistic(data.getTotalSaving(), "0");
 }
 
 @Test
@@ -350,40 +360,43 @@ void testGetStatMonthlyNoTransaction() throws Exception {
 
     TransactionStateResponse data = getStatOk();
 
-    assertStatistic(data.getTotalIncome(), "0", "0.00");
-    assertStatistic(data.getTotalExpense(), "0", "0.00");
-    assertStatistic(data.getTotalSaving(), "0", "0.00");
-    assertStatistic(data.getTotalBalance(), "0", "0.00");
+    assertStatistic(data.getTotalIncome(), "0");
+    assertStatistic(data.getTotalExpense(), "0");
+    assertStatistic(data.getTotalSaving(), "0");
+    assertStatistic(data.getTotalBalance(), "0");
 }
 
 
 // ===================== type: YEARLY =====================
 
 @Test
-void testGetStatYearlyPreviousYearEmpty() throws Exception {
+void testGetStatYearly() throws Exception {
     TransactionStateResponse data = getStatOk("type", "YEARLY");
 
-    // seluruh 2026 (termasuk Oktober), dibanding 2025 yang kosong
-    assertStatistic(data.getTotalIncome(), "27100000", "100.00");
-    assertStatistic(data.getTotalExpense(), "4300000", "100.00");
-    assertStatistic(data.getTotalSaving(), "2500000", "100.00");
-    assertStatistic(data.getTotalBalance(), "22800000", "100.00");
+    // seluruh 2026 (termasuk Oktober)
+    assertEquals(LocalDateTime.of(2026, 1, 1, 0, 0), data.getStartDate());
+    assertEquals(LocalDateTime.of(2027, 1, 1, 0, 0), data.getEndDate());
+
+    assertStatistic(data.getTotalIncome(), "27100000");
+    assertStatistic(data.getTotalExpense(), "4300000");
+    assertStatistic(data.getTotalSaving(), "2500000");
+    assertStatistic(data.getTotalBalance(), "22800000");
 }
 
 @Test
-void testGetStatYearlyComparedToPreviousYear() throws Exception {
+void testGetStatYearlyCarriesPriorYearBalances() throws Exception {
     createTransaction(user, gaji, "20000000", LocalDateTime.of(2025, 12, 31, 23, 59, 59), false);
     createTransaction(user, tagihan, "5000000", LocalDateTime.of(2025, 1, 1, 0, 0), false);
     createTransaction(user, investasi, "2500000", LocalDateTime.of(2025, 6, 1, 10, 0), false);
 
     TransactionStateResponse data = getStatOk("type", "YEARLY");
 
-    assertStatistic(data.getTotalIncome(), "27100000", "35.50");
-    assertStatistic(data.getTotalExpense(), "4300000", "-14.00");
-    // saldo SAVINGS akhir 2026 5.000.000 vs akhir 2025 2.500.000
-    assertStatistic(data.getTotalSaving(), "5000000", "100.00");
-    // saldo MAIN akhir 2026 37.800.000 vs akhir 2025 15.000.000
-    assertStatistic(data.getTotalBalance(), "37800000", "152.00");
+    assertStatistic(data.getTotalIncome(), "27100000");
+    assertStatistic(data.getTotalExpense(), "4300000");
+    // saldo SAVINGS akhir 2026 5.000.000
+    assertStatistic(data.getTotalSaving(), "5000000");
+    // saldo MAIN akhir 2026 37.800.000
+    assertStatistic(data.getTotalBalance(), "37800000");
 }
 
 @Test
@@ -395,8 +408,8 @@ void testGetStatYearlyBoundary() throws Exception {
     createTransaction(user, gaji, "1500000", LocalDateTime.of(2025, 1, 1, 0, 0), false);
     createTransaction(user, gaji, "7000000", LocalDateTime.of(2024, 12, 31, 23, 59, 59), false);
 
-    // 2026: 3.000.000, 2025: 1.500.000
-    assertStatistic(getStatOk("type", "YEARLY").getTotalIncome(), "3000000", "100.00");
+    // Hanya income dalam tahun 2026 yang dihitung
+    assertStatistic(getStatOk("type", "YEARLY").getTotalIncome(), "3000000");
 }
 
 
@@ -412,17 +425,20 @@ void testGetStatWeekly() throws Exception {
     // minggu lalu: 09-11 00:00 s/d 09-17 23:59:59
     createTransaction(user, tagihan, "400000", LocalDateTime.of(2026, 9, 11, 0, 0), false);
     createTransaction(user, gaji, "800000", LocalDateTime.of(2026, 9, 17, 23, 59, 59), false);
-    // di luar kedua periode
+    // di luar periode yang dipilih
     createTransaction(user, gaji, "9999999", LocalDateTime.of(2026, 9, 25, 0, 0), false);
     createTransaction(user, tagihan, "5000000", LocalDateTime.of(2026, 9, 10, 23, 59, 59), false);
 
     TransactionStateResponse data = getStatOk("type", "WEEKLY");
 
-    assertStatistic(data.getTotalIncome(), "1000000", "25.00");
-    assertStatistic(data.getTotalExpense(), "200000", "-50.00");
-    assertStatistic(data.getTotalSaving(), "300000", "100.00");
-    // saldo MAIN 09-25 -3.800.000 vs 09-18 -4.600.000
-    assertStatistic(data.getTotalBalance(), "-3800000", "17.39");
+    assertEquals(LocalDateTime.of(2026, 9, 18, 0, 0), data.getStartDate());
+    assertEquals(LocalDateTime.of(2026, 9, 25, 0, 0), data.getEndDate());
+
+    assertStatistic(data.getTotalIncome(), "1000000");
+    assertStatistic(data.getTotalExpense(), "200000");
+    assertStatistic(data.getTotalSaving(), "300000");
+    // saldo MAIN 09-25 -3.800.000
+    assertStatistic(data.getTotalBalance(), "-3800000");
 }
 
 @Test
@@ -430,11 +446,11 @@ void testGetStatWeeklyNoTransactionInFixture() throws Exception {
     // fixture tidak punya transaksi aktif di 09-11 s/d 09-24 (999.000 di 09-12 soft delete)
     TransactionStateResponse data = getStatOk("type", "weekly");
 
-    assertStatistic(data.getTotalIncome(), "0", "0.00");
-    assertStatistic(data.getTotalExpense(), "0", "0.00");
+    assertStatistic(data.getTotalIncome(), "0");
+    assertStatistic(data.getTotalExpense(), "0");
     // saldo tetap terbawa dari transaksi sebelumnya
-    assertStatistic(data.getTotalSaving(), "2500000", "0.00");
-    assertStatistic(data.getTotalBalance(), "17700000", "0.00");
+    assertStatistic(data.getTotalSaving(), "2500000");
+    assertStatistic(data.getTotalBalance(), "17700000");
 }
 
 
@@ -448,12 +464,11 @@ void testGetStatCustomFullMonth() throws Exception {
         "endDate", "2026-09-30"
     );
 
-    // pembanding = 30 hari sebelumnya (08-02 s/d 08-31), gaji 08-01 tidak ikut
-    assertStatistic(data.getTotalIncome(), "12100000", "100.00");
-    assertStatistic(data.getTotalExpense(), "2000000", "-13.04");
-    assertStatistic(data.getTotalSaving(), "2500000", "150.00");
-    // saldo MAIN 10-01 17.800.000 vs 09-01 7.700.000
-    assertStatistic(data.getTotalBalance(), "17800000", "131.17");
+    assertStatistic(data.getTotalIncome(), "12100000");
+    assertStatistic(data.getTotalExpense(), "2000000");
+    assertStatistic(data.getTotalSaving(), "2500000");
+    // saldo MAIN 10-01 17.800.000
+    assertStatistic(data.getTotalBalance(), "17800000");
 }
 
 @Test
@@ -464,12 +479,14 @@ void testGetStatCustomSingleDay() throws Exception {
         "endDate", "2026-09-05"
     );
 
-    // pembanding = 09-04
-    assertStatistic(data.getTotalIncome(), "0", "0.00");
-    assertStatistic(data.getTotalExpense(), "500000", "100.00");
-    assertStatistic(data.getTotalSaving(), "2500000", "0.00");
-    // saldo MAIN 09-06 19.200.000 vs 09-05 19.700.000
-    assertStatistic(data.getTotalBalance(), "19200000", "-2.54");
+    assertEquals(LocalDateTime.of(2026, 9, 5, 0, 0), data.getStartDate());
+    assertEquals(LocalDateTime.of(2026, 9, 6, 0, 0), data.getEndDate());
+
+    assertStatistic(data.getTotalIncome(), "0");
+    assertStatistic(data.getTotalExpense(), "500000");
+    assertStatistic(data.getTotalSaving(), "2500000");
+    // saldo MAIN 09-06 19.200.000
+    assertStatistic(data.getTotalBalance(), "19200000");
 }
 
 @Test
@@ -480,12 +497,11 @@ void testGetStatCustomArbitraryPeriod() throws Exception {
         "endDate", "2026-09-20"
     );
 
-    // 11 hari, pembanding = 08-30 s/d 09-09
-    assertStatistic(data.getTotalIncome(), "0", "-100.00");
-    assertStatistic(data.getTotalExpense(), "1500000", "87.50");
-    assertStatistic(data.getTotalSaving(), "2500000", "0.00");
-    // saldo MAIN 09-21 17.700.000 vs 09-10 19.200.000
-    assertStatistic(data.getTotalBalance(), "17700000", "-7.81");
+    assertStatistic(data.getTotalIncome(), "0");
+    assertStatistic(data.getTotalExpense(), "1500000");
+    assertStatistic(data.getTotalSaving(), "2500000");
+    // saldo MAIN 09-21 17.700.000
+    assertStatistic(data.getTotalBalance(), "17700000");
 }
 
 @Test
@@ -496,42 +512,40 @@ void testGetStatCustomCrossMonthPeriod() throws Exception {
         "endDate", "2026-09-15"
     );
 
-    // 32 hari, pembanding = 07-14 s/d 08-14 (hanya gaji 08-01)
-    assertStatistic(data.getTotalIncome(), "12000000", "20.00");
-    assertStatistic(data.getTotalExpense(), "4300000", "100.00");
-    assertStatistic(data.getTotalSaving(), "2500000", "100.00");
-    // saldo MAIN 09-16 17.700.000 vs 08-15 10.000.000
-    assertStatistic(data.getTotalBalance(), "17700000", "77.00");
+    assertStatistic(data.getTotalIncome(), "12000000");
+    assertStatistic(data.getTotalExpense(), "4300000");
+    assertStatistic(data.getTotalSaving(), "2500000");
+    // saldo MAIN 09-16 17.700.000
+    assertStatistic(data.getTotalBalance(), "17700000");
 }
 
 @Test
-void testGetStatCustomPreviousPeriodEmpty() throws Exception {
+void testGetStatCustomAugustTotals() throws Exception {
     TransactionStateResponse data = getStatOk(
         "type", "CUSTOM",
         "startDate", "2026-08-01",
         "endDate", "2026-08-31"
     );
 
-    assertStatistic(data.getTotalIncome(), "10000000", "100.00");
-    assertStatistic(data.getTotalExpense(), "2300000", "100.00");
-    assertStatistic(data.getTotalSaving(), "1000000", "100.00");
-    assertStatistic(data.getTotalBalance(), "7700000", "100.00");
+    assertStatistic(data.getTotalIncome(), "10000000");
+    assertStatistic(data.getTotalExpense(), "2300000");
+    assertStatistic(data.getTotalSaving(), "1000000");
+    assertStatistic(data.getTotalBalance(), "7700000");
 }
 
 @Test
-void testGetStatCustomCurrentPeriodEmpty() throws Exception {
+void testGetStatCustomEmptyPeriodCarriesBalances() throws Exception {
     TransactionStateResponse data = getStatOk(
         "type", "CUSTOM",
         "startDate", "2026-10-02",
         "endDate", "2026-10-31"
     );
 
-    // pembanding = 09-02 s/d 10-01
-    assertStatistic(data.getTotalIncome(), "0", "-100.00");
-    assertStatistic(data.getTotalExpense(), "0", "-100.00");
+    assertStatistic(data.getTotalIncome(), "0");
+    assertStatistic(data.getTotalExpense(), "0");
     // tidak ada transaksi di periode ini, saldo tidak berubah
-    assertStatistic(data.getTotalSaving(), "2500000", "0.00");
-    assertStatistic(data.getTotalBalance(), "22800000", "0.00");
+    assertStatistic(data.getTotalSaving(), "2500000");
+    assertStatistic(data.getTotalBalance(), "22800000");
 }
 
 @Test
@@ -542,10 +556,10 @@ void testGetStatCustomEmptyPeriod() throws Exception {
         "endDate", "2026-12-31"
     );
 
-    assertStatistic(data.getTotalIncome(), "0", "0.00");
-    assertStatistic(data.getTotalExpense(), "0", "0.00");
-    assertStatistic(data.getTotalSaving(), "2500000", "0.00");
-    assertStatistic(data.getTotalBalance(), "22800000", "0.00");
+    assertStatistic(data.getTotalIncome(), "0");
+    assertStatistic(data.getTotalExpense(), "0");
+    assertStatistic(data.getTotalSaving(), "2500000");
+    assertStatistic(data.getTotalBalance(), "22800000");
 }
 
 @Test
@@ -559,8 +573,7 @@ void testGetStatCustomCrossYear() throws Exception {
         "endDate", "2027-01-31"
     );
 
-    // pembanding = 2026-12-01 s/d 2026-12-31
-    assertStatistic(data.getTotalIncome(), "1500000", "50.00");
+    assertStatistic(data.getTotalIncome(), "1500000");
 }
 
 
@@ -573,8 +586,8 @@ void testGetStatNewUserShowsOpeningBalances() throws Exception {
 
     TransactionStateResponse data = getStatOk();
 
-    assertStatistic(data.getTotalBalance(), "5000000", "0.00");
-    assertStatistic(data.getTotalSaving(), "2000000", "0.00");
+    assertStatistic(data.getTotalBalance(), "5000000");
+    assertStatistic(data.getTotalSaving(), "2000000");
 }
 
 @Test
@@ -585,8 +598,8 @@ void testGetStatIncomeAddsToOpeningMainBalance() throws Exception {
 
     TransactionStateResponse data = getStatOk();
 
-    assertStatistic(data.getTotalBalance(), "6000000", "20.00");
-    assertStatistic(data.getTotalSaving(), "2000000", "0.00");
+    assertStatistic(data.getTotalBalance(), "6000000");
+    assertStatistic(data.getTotalSaving(), "2000000");
 }
 
 @Test
@@ -597,8 +610,8 @@ void testGetStatExpenseSubtractsFromOpeningMainBalance() throws Exception {
 
     TransactionStateResponse data = getStatOk();
 
-    assertStatistic(data.getTotalBalance(), "4500000", "-10.00");
-    assertStatistic(data.getTotalSaving(), "2000000", "0.00");
+    assertStatistic(data.getTotalBalance(), "4500000");
+    assertStatistic(data.getTotalSaving(), "2000000");
 }
 
 @Test
@@ -609,8 +622,8 @@ void testGetStatSavingAddsToOpeningSavingsOnly() throws Exception {
 
     TransactionStateResponse data = getStatOk();
 
-    assertStatistic(data.getTotalBalance(), "5000000", "0.00");
-    assertStatistic(data.getTotalSaving(), "2500000", "25.00");
+    assertStatistic(data.getTotalBalance(), "5000000");
+    assertStatistic(data.getTotalSaving(), "2500000");
 }
 
 @Test
@@ -620,19 +633,19 @@ void testGetStatExistingTransactionsPlusLaterSetupCountsOpeningOnce() throws Exc
 
     TransactionStateResponse data = getStatOk();
 
-    // MAIN 5.000.000 + 17.800.000 vs 5.000.000 + 7.700.000
-    assertStatistic(data.getTotalBalance(), "22800000", "79.53");
-    // SAVINGS 2.000.000 + 2.500.000 vs 2.000.000 + 1.000.000
-    assertStatistic(data.getTotalSaving(), "4500000", "50.00");
-    assertStatistic(data.getTotalIncome(), "12100000", "21.00");
-    assertStatistic(data.getTotalExpense(), "2000000", "-13.04");
+    // MAIN 5.000.000 + 17.800.000
+    assertStatistic(data.getTotalBalance(), "22800000");
+    // SAVINGS 2.000.000 + 2.500.000
+    assertStatistic(data.getTotalSaving(), "4500000");
+    assertStatistic(data.getTotalIncome(), "12100000");
+    assertStatistic(data.getTotalExpense(), "2000000");
 }
 
 @Test
 void testGetStatExcludeOtherUserOpeningBalance() throws Exception {
     completeFinancialSetup("testB", "9000000", "9000000");
 
-    assertSeptemberVsAugust(getStatOk());
+    assertSeptemberTotals(getStatOk());
 }
 
 
