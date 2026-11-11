@@ -401,17 +401,18 @@ public TransactionResponse get(User user , String transactionCode) {
     public TransactionStateResponse getStat(User user, TransactionStatFilter filter) {
         StatRange range = resolveStatRange(filter);
         PeriodTotals current = sumTotals(user, range.currentStart(), range.currentEnd());
-        PeriodTotals last = sumTotals(user, range.lastStart(), range.currentStart());
 
         List<Account> accounts = accountService.getAccounts(user);
         Account main = accountService.findByType(accounts, AccountType.MAIN);
         Account savings = accountService.findByType(accounts, AccountType.SAVINGS);
 
         TransactionStateResponse response = new TransactionStateResponse();
-        response.setTotalBalance(toStatistic(mainBalanceAsOf(user, main, range.currentEnd()), mainBalanceAsOf(user, main, range.currentStart())));
-        response.setTotalIncome(toStatistic(current.income(), last.income()));
-        response.setTotalExpense(toStatistic(current.expense(), last.expense()));
-        response.setTotalSaving(toStatistic(savingsBalanceAsOf(user, savings, range.currentEnd()), savingsBalanceAsOf(user, savings, range.currentStart())));
+        response.setTotalBalance(toStatistic(mainBalanceAsOf(user, main, range.currentEnd())));
+        response.setTotalIncome(toStatistic(current.income()));
+        response.setTotalExpense(toStatistic(current.expense()));
+        response.setTotalSaving(toStatistic(savingsBalanceAsOf(user, savings, range.currentEnd())));
+        response.setStartDate(range.currentStart);
+        response.setEndDate(range.currentEnd);
         return response;
     }
 
@@ -491,24 +492,12 @@ public TransactionResponse get(User user , String transactionCode) {
     }
 
    // [HELPER]
-   private TransactionStateResponse.Statistic toStatistic(BigDecimal current, BigDecimal last) {
+   private TransactionStateResponse.Statistic toStatistic(BigDecimal current) {
       TransactionStateResponse.Statistic statistic = new TransactionStateResponse.Statistic();
       statistic.setAmount(current);
-      statistic.setChangePercentage(calculateChangePercentage(current, last));
       return statistic;
    }
 
-// [HELPER]
-private BigDecimal calculateChangePercentage( BigDecimal current, BigDecimal last) {
-    if (last.compareTo(BigDecimal.ZERO) == 0) {
-        // defisit dari 0 -> -100, surplus dari 0 -> 100
-        return ONE_HUNDRED.multiply(BigDecimal.valueOf(current.signum())).setScale(PERCENTAGE_SCALE);
-    }
-
-    return current.subtract(last)
-            .multiply(ONE_HUNDRED)
-            .divide(last.abs(), PERCENTAGE_SCALE, RoundingMode.HALF_UP);
-}
 
 
     // [HELPER]
