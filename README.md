@@ -45,10 +45,10 @@ For automated testing and VPS deployment from `release/v.0.1`, follow the
 4. Run the application:
 
    ```bash
-   ./mvnw spring-boot:run -Dspring-boot.run.profiles=local
+   ./mvnw spring-boot:run
    ```
 
-   The `local` profile loads `.env` from the project root. When running from an IDE,
+   The Maven Spring Boot plugin activates the `local` profile automatically. This profile loads `.env` from the project root. When running from an IDE,
    set the active Spring profile to `local` and the working directory to this project.
    For the blog CMS, set `BLOG_ENABLED=true` and configure `BLOG_DB_URL`,
    `BLOG_DB_USERNAME`, and `BLOG_DB_PASSWORD` in `.env`. Provision the blog database

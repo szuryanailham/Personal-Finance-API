@@ -94,7 +94,8 @@ public class AuthService {
         return saved;
     }
 
-    private TokenResponse issueToken(User user) {
+    // Shared by login and verified registration; callers own the database transaction.
+    TokenResponse issueToken(User user) {
         user.setToken(UUID.randomUUID().toString());
         user.setTokenExpiredAt(System.currentTimeMillis() + TOKEN_TTL.toMillis());
         userRepository.save(user);

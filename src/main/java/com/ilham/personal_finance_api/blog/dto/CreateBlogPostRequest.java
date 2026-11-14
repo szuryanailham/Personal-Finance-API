@@ -11,7 +11,8 @@ public record CreateBlogPostRequest(
         @NotBlank @Size(max = 1000000) String contentHtml,
         @Pattern(regexp = "DRAFT|PUBLISHED") String status,
         @NotNull @Size(min = 1, max = 100) List<@NotNull UUID> categoryIds,
-        @NotNull @Size(max = 100) List<@NotNull UUID> tagIds) {
+        @NotNull @Size(max = 100) List<@NotNull UUID> tagIds,
+        UUID featuredMediaId) {
     public CreateBlogPostRequest {
         title = title == null ? null : title.strip();
         slug = slug == null ? null : slug.strip();

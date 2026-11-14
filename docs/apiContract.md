@@ -1698,3 +1698,30 @@ Responses use `WebResponse`: 200 with `message: "Password reset email sent"`; 40
 Links expire exactly 15 minutes after issuance and are single use. Requesting another link replaces the previous link; failed SMTP delivery preserves the previous link. Successful reset revokes the existing bearer session and requires normal login. No additional OTP is required: registration verifies initial mailbox ownership, and the reset link proves current mailbox access.
 
 Set `PASSWORD_RESET_URL` to the frontend reset page in production (default `http://localhost:3000/reset-password`). It must be an absolute HTTP(S) URL without credentials or a fragment. The backend appends/replaces the `token` query parameter; the frontend submits it to the reset endpoint. Frontend implementation is separate. Only a SHA-256 token hash is stored in PostgreSQL.
+
+
+### Registration OTP verification session
+
+`POST /api/auth/sign-up` sends an OTP (202); it does not create an account or session.
+`POST /api/auth/sign-up/verify` accepts `{"email":"user@example.com","otp":"123456"}`.
+After valid OTP verification and successful account creation, it returns HTTP 201:
+
+```json
+{
+  "data": {
+    "firstName": "Ilham",
+    "lastName": "Suryana",
+    "email": "user@example.com",
+    "token": "token-login",
+    "expiredAt": 1799999999000
+  },
+  "message": "Register successfully"
+}
+```
+
+The session uses the same UUID token generation and 3-day lifetime as login. `expiredAt`
+is epoch milliseconds. The token and expiry are persisted with the new account in the
+same database transaction. Use `Authorization: Bearer <token>` immediately on
+`GET /api/users/me` or other protected endpoints; no separate login is needed.
+Wrong, expired, or already used OTPs do not issue a session. Reusing a consumed OTP
+returns 400 and leaves the existing session unchanged.

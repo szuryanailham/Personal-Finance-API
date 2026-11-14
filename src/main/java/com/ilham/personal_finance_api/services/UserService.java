@@ -23,6 +23,9 @@ private UserRepository userRepository;
 @Autowired
 private AccountService accountService;
 
+@Autowired
+private AuthService authService;
+
 
 // Dipanggil setelah OTP registrasi terverifikasi; password sudah di-hash saat sign-up
 @Transactional
@@ -46,11 +49,14 @@ public RegisterUserResponse createVerifiedUser(PendingRegistration pending) {
     }
 
     accountService.ensureDefaultAccounts(user);
+    var session = authService.issueToken(user);
 
      RegisterUserResponse response = new RegisterUserResponse();
      response.setFirstName(user.getFirstName());
      response.setLastName(user.getLastName());
      response.setEmail(user.getEmail());
+     response.setToken(session.getToken());
+     response.setExpiredAt(session.getExpiredAt());
      return response;
 
 }

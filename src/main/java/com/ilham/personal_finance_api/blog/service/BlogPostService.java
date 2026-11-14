@@ -162,7 +162,7 @@ public class BlogPostService {
         } catch (DuplicateKeyException ex) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Post slug is already used or reserved");
         } catch (DataIntegrityViolationException ex) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid category or tag reference");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid category, tag, or featured media reference");
         }
     }
 }
