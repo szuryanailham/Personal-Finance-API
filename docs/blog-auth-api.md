@@ -10,10 +10,10 @@ Untuk menjalankan dari `.env` di root proyek, isi `BLOG_ENABLED=true` dan
 `BLOG_DB_URL`, `BLOG_DB_USERNAME`, serta `BLOG_DB_PASSWORD`, lalu jalankan:
 
 ```bash
-./mvnw spring-boot:run -Dspring-boot.run.profiles=local
+./mvnw spring-boot:run
 ```
 
-Profil `local` memuat `.env` sebagai konfigurasi Spring. Di IDE, pilih active profile
+Perintah Maven di atas otomatis mengaktifkan profil `local`, yang memuat `.env` sebagai konfigurasi Spring. Di IDE, pilih active profile
 `local` dan working directory root proyek. Restart proses setelah mengubah konfigurasi.
 Tanpa profil ini, `.env` tidak dimuat otomatis oleh Spring; gunakan environment
 variables seperti contoh berikut. Docker Compose produksi sudah memakai `env_file`.

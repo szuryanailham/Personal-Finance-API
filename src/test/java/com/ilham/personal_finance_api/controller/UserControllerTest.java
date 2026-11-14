@@ -18,6 +18,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -172,12 +173,29 @@ public class UserControllerTest extends AbstractIntegrationTest {
     void testVerifySuccessCreatesUser() throws Exception {
         signUp(EMAIL).andExpect(status().isAccepted());
 
-        verifyOtp(EMAIL, capturedOtp(EMAIL))
+        long beforeVerification = System.currentTimeMillis();
+        String body = verifyOtp(EMAIL, capturedOtp(EMAIL))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.data.email").value(EMAIL))
-                .andExpect(jsonPath("$.data.firstName").value("test"));
+                .andExpect(jsonPath("$.data.firstName").value("test"))
+                .andExpect(jsonPath("$.data.lastName").value("test"))
+                .andExpect(jsonPath("$.data.token").isNotEmpty())
+                .andExpect(jsonPath("$.data.expiredAt").isNumber())
+                .andExpect(jsonPath("$.message").value("Register successfully"))
+                .andReturn().getResponse().getContentAsString();
+        long afterVerification = System.currentTimeMillis();
+        var data = objectMapper.readTree(body).path("data");
+        String token = data.path("token").asString();
+        long expiredAt = data.path("expiredAt").asLong();
+        assertTrue(expiredAt >= beforeVerification + Duration.ofDays(3).toMillis());
+        assertTrue(expiredAt <= afterVerification + Duration.ofDays(3).toMillis());
+        mockMvc.perform(get("/api/users/me").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.email").value(EMAIL));
 
         User user = userRepository.findByEmail(EMAIL).orElseThrow();
+        assertEquals(token, user.getToken());
+        assertEquals(Long.valueOf(expiredAt), user.getTokenExpiredAt());
         assertTrue(BCrypt.checkpw(PASSWORD, user.getPassword()));
         assertFalse(user.isGuidanceCompleted());
         assertTrue(redisTemplate.keys("reg:*").isEmpty(), "all registration keys must be cleared");
@@ -198,7 +216,9 @@ public class UserControllerTest extends AbstractIntegrationTest {
 
         verifyOtp(EMAIL, wrongOtp(capturedOtp(EMAIL)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.errors").value("Invalid OTP. 2 attempt(s) remaining"));
+                .andExpect(jsonPath("$.errors").value("Invalid OTP. 2 attempt(s) remaining"))
+                .andExpect(jsonPath("$.data.token").doesNotExist());
+        assertFalse(userRepository.existsByEmail(EMAIL));
     }
 
     @Test
@@ -244,7 +264,25 @@ public class UserControllerTest extends AbstractIntegrationTest {
         // simulasi OTP sudah kedaluwarsa
         redisTemplate.delete(RegistrationOtpStore.pendingKey(EMAIL));
 
-        verifyOtp(EMAIL, otp).andExpect(status().isBadRequest());
+        verifyOtp(EMAIL, otp).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.data.token").doesNotExist());
+        assertFalse(userRepository.existsByEmail(EMAIL));
+    }
+
+    @Test
+    void testUsedOtpDoesNotIssueAnotherSession() throws Exception {
+        signUp(EMAIL).andExpect(status().isAccepted());
+        String otp = capturedOtp(EMAIL);
+        verifyOtp(EMAIL, otp).andExpect(status().isCreated());
+        User original = userRepository.findByEmail(EMAIL).orElseThrow();
+
+        verifyOtp(EMAIL, otp).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.data.token").doesNotExist());
+        User stored = userRepository.findByEmail(EMAIL).orElseThrow();
+        assertEquals(original.getToken(), stored.getToken());
+        assertEquals(original.getTokenExpiredAt(), stored.getTokenExpiredAt());
+        mockMvc.perform(get("/api/users/me").header("Authorization", "Bearer " + original.getToken()))
+                .andExpect(status().isOk());
     }
 
     @Test

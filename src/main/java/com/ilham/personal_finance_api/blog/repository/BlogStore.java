@@ -191,12 +191,14 @@ public class BlogStore {
         return read.execute(tx -> {
             long total = jdbc.queryForObject("SELECT count(*) FROM posts WHERE deleted_at IS NULL", Long.class);
             var items = jdbc.query("""
-                    SELECT id,author_id,title,slug,excerpt,status,published_at,reading_time_minutes,created_at,updated_at
-                    FROM posts WHERE deleted_at IS NULL
-                    ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?
+                    SELECT p.id,p.author_id,p.title,p.slug,p.excerpt,m.url AS hero_image,p.status,
+                           p.published_at,p.reading_time_minutes,p.created_at,p.updated_at
+                    FROM posts p LEFT JOIN media m ON m.id=p.featured_media_id
+                    WHERE p.deleted_at IS NULL
+                    ORDER BY p.created_at DESC,p.id DESC LIMIT ? OFFSET ?
                     """, (rs, row) -> new BlogPostSummary(rs.getObject("id", UUID.class),
                     rs.getObject("author_id", UUID.class), rs.getString("title"), rs.getString("slug"),
-                    rs.getString("excerpt"), rs.getString("status"),
+                    rs.getString("excerpt"), rs.getString("hero_image"), rs.getString("status"),
                     rs.getTimestamp("published_at") == null ? null : rs.getTimestamp("published_at").toInstant(),
                     rs.getObject("reading_time_minutes", Integer.class),
                     rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant()), limit, skip);
@@ -218,14 +220,14 @@ public class BlogStore {
             UUID id = UUID.randomUUID();
             Instant published = request.status().equals("PUBLISHED") ? now : null;
             var result = jdbc.queryForObject("""
-                    INSERT INTO posts(id,author_id,title,slug,excerpt,content_html,status,published_at,reading_time_minutes)
-                    VALUES (?,?,?,?,?,?,?,?,?) RETURNING created_at,updated_at
+                    INSERT INTO posts(id,author_id,title,slug,excerpt,content_html,status,published_at,reading_time_minutes,featured_media_id)
+                    VALUES (?,?,?,?,?,?,?,?,?,?) RETURNING created_at,updated_at
                     """, (rs, row) -> new BlogPostResponse(id, authorId, request.title(), request.slug(),
                     request.excerpt(), html, request.status(), published, minutes,
                     List.copyOf(request.categoryIds()), List.copyOf(request.tagIds()),
                     rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant()),
                     id, authorId, request.title(), request.slug(), request.excerpt(), html, request.status(),
-                    published == null ? null : Timestamp.from(published), minutes);
+                    published == null ? null : Timestamp.from(published), minutes, request.featuredMediaId());
             for (UUID category : request.categoryIds()) {
                 jdbc.update("INSERT INTO post_categories(post_id,category_id) VALUES (?,?)", id, category);
             }

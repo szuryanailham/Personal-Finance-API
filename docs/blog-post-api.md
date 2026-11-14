@@ -11,6 +11,7 @@ Token finance tidak dapat dipakai.
   "excerpt": "Panduan sederhana membuat anggaran.",
   "contentHtml": "<h2>Mulai dari anggaran</h2><p>Catat pemasukan dan pengeluaran.</p>",
   "status": "DRAFT",
+  "featuredMediaId": null,
   "categoryIds": ["11111111-1111-4111-8111-111111111111"],
   "tagIds": ["22222222-2222-4222-8222-222222222222"]
 }
@@ -21,7 +22,10 @@ Ganti UUID contoh dengan ID dari API kategori dan tag. Minimal satu kategori;
 AUTHOR dapat membuat DRAFT; ADMIN/EDITOR dapat membuat DRAFT atau PUBLISHED.
 Status default DRAFT jika tidak dikirim atau null. Penulis selalu pengguna CMS
 pada sesi; klien tidak memilih authorId. Waktu publikasi PUBLISHED diisi server.
-Scheduling, media, dan SEO belum menjadi bagian endpoint ini.
+`featuredMediaId` opsional: isi UUID gambar yang sudah ada di tabel `media`, atau
+null jika tanpa gambar utama. ID yang tidak ada menghasilkan HTTP 400.
+URL gambar tersebut tampil sebagai `heroImage` pada list CMS. Endpoint upload
+media belum tersedia. Scheduling dan SEO belum menjadi bagian endpoint ini.
 
 Title wajib, maksimal 250 karakter; slug wajib lowercase ASCII dengan pemisah
 hyphen, maksimal 200 karakter. Excerpt opsional maksimal 10.000 karakter.
@@ -85,9 +89,17 @@ Respons HTTP 200, Cache-Control no-store:
 }
 ```
 
-Setiap item berisi id, authorId, title, slug, excerpt, status, publishedAt,
+Setiap item berisi id, authorId, title, slug, excerpt, heroImage, status, publishedAt,
 readingTimeMinutes, createdAt, dan updatedAt. Konten HTML serta relasi kategori/tag
 tidak dimuat pada list. Total dan halaman dibaca pada snapshot database yang sama.
+Field `heroImage` berisi URL dari `media.url` melalui `posts.featured_media_id`,
+atau `null` jika artikel belum memiliki gambar utama. Contoh: `"heroImage": "https://example.com/blog/hero.jpg"`.
+Role database runtime memerlukan `SELECT ON media` untuk membaca gambar utama:
+
+```sql
+GRANT SELECT ON media TO artoku_blog_app;
+```
+
 Search, filter tanggal, sort custom, dan endpoint detail belum ditambahkan pada list ini.
 
 ## Update parsial artikel CMS

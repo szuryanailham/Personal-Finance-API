@@ -1,12 +1,21 @@
-todo list :
+title : Implementing date range between start date and end date in response
 
-1. create dto for user registration 
+algoritma "
 
-2. creating dto web response
+1. add new variable in TransactionStateResponse , add  2 variable there are :
 
-3. creating service for resigstion
+- private DateTime startDate 
 
-4. creating controller for registraion  
+- ptivate DateTime endDate
 
-5. creating testing registraion
+2.  add logic in transaction service logic , with logic below :
+
+-    return  range.currentStart == startDate
+
+             range.currentDate == endDate
+
+3. delete logic logic of
+
+ " Calculate the previous period’s total income and expense, from lastStart to currentStart."
+
 
