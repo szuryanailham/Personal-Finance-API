@@ -389,7 +389,7 @@ VALUES ('<author_id>'::uuid, 'instagram', 'https://instagram.com/author')
 ON CONFLICT (author_id, platform) DO UPDATE SET url = EXCLUDED.url;
 ```
 
-## Lifecycle media ImageKit dan cleanup
+## Pelacakan pemakaian media ImageKit
 
 Upload `POST /api/blog/media` menyimpan UUID media pada `media.id`, fileId ImageKit
 pada `provider_asset_id`, URL pada `url`, dan waktu upload pada `created_at`.
@@ -400,13 +400,12 @@ disanitasi dan menggabungkannya dengan `featuredMediaId`. URL yang cocok dengan
 media terdaftar dicatat pada `post_media`. Transformasi melalui query URL
 (misalnya `?tr=w-800`) tetap mengacu ke URL asli upload. Gunakan URL upload asli
 atau transformasi melalui query; perubahan path URL ImageKit tidak dipetakan.
-Gambar eksternal yang tidak terdaftar di database tidak dikelola oleh cleanup.
+Gambar eksternal yang tidak terdaftar di database tidak dicatat pada relasi media.
 
 Relasi dan isi artikel disimpan dalam transaksi yang sama. Gambar yang dilepas
 dari HTML tetap digunakan jika masih menjadi gambar utama atau dipakai artikel
 lain. Soft delete artikel melepas seluruh relasi medianya. DRAFT, PUBLISHED,
-dan ARCHIVED yang belum dihapus semuanya mempertahankan gambar. Foto profil
-penulis dengan URL media yang sama juga dilindungi dari cleanup.
+dan ARCHIVED yang belum dihapus semuanya mempertahankan relasi gambar.
 
 Mengganti gambar utama:
 ```http
@@ -426,62 +425,16 @@ Jika `featuredMediaId` tidak dikirim pada PATCH, pilihan sebelumnya dipertahanka
 Respons CMS create/detail/edit menyertakan `featuredMediaId`. Referensi ke media
 berstatus DELETED ditolak dengan 400.
 
-Job berjalan setiap satu jam, mulai satu menit setelah aplikasi aktif, maksimum
-50 media per batch. Hanya media provider `imagekit` dengan fileId, tanpa pemakaian,
-dan sudah tidak digunakan selama 24 jam yang diproses. Untuk upload baru,
-masa tunggu dimulai saat upload; ketika media terakhir dilepas, dihitung ulang
-dari waktu pelepasan tersebut.
+Media yang tidak lagi digunakan tetap disimpan. Backend tidak menjalankan job
+pembersihan otomatis dan tidak menghapus file ImageKit secara terjadwal.
 
-Job memanggil `DELETE https://api.imagekit.io/v1/files/{fileId}` dengan private
-key server. HTTP sukses atau 404 menandai baris sebagai `DELETED`, mengisi
-`deleted_at`, dan mempertahankan metadata untuk audit. Kegagalan jaringan atau
-HTTP lainnya menyimpan `last_cleanup_error`, menambah `cleanup_attempts`,
-dan menjadwalkan ulang melalui `next_cleanup_at` setelah satu jam.
-Retry tetap tersedia setelah restart; tidak ada batas jumlah percobaan.
-Jika proses berhenti setelah file terhapus tetapi sebelum commit database,
-percobaan berikutnya menerima 404 dan menyelesaikan status database.
-
-Save artikel dan cleanup mengunci baris media yang sama. Job memakai
-`SKIP LOCKED`, memeriksa ulang pemakaian setelah memperoleh lock, dan menahan
-lock selama request penghapusan (connect timeout 5 detik, read timeout 15 detik).
-Beberapa instance aplikasi dapat menjalankan job tanpa memproses media yang sama
-bersamaan. Media yang sudah dihapus tidak dapat dipasang kembali ke artikel.
-
-Konfigurasi:
-```dotenv
-IMAGEKIT_PRIVATE_KEY=<private key server>
-BLOG_MEDIA_CLEANUP_ENABLED=true
-BLOG_MEDIA_CLEANUP_GRACE_PERIOD=24h
-BLOG_MEDIA_CLEANUP_RETRY_DELAY=1h
-BLOG_MEDIA_CLEANUP_INTERVAL=1h
-BLOG_MEDIA_CLEANUP_INITIAL_DELAY=1m
-BLOG_MEDIA_CLEANUP_BATCH_SIZE=50
-```
-
-Tanpa private key, job tidak memanggil ImageKit. Set `BLOG_MEDIA_CLEANUP_ENABLED=false`
-untuk menonaktifkan job. Grace period tidak boleh negatif; retry harus positif;
-batch size 1–1000.
-
-Terapkan migration blog V9 sebelum menjalankan aplikasi ini. Migration mengisi
-relasi artikel lama secara konservatif berdasarkan URL pada HTML dan gambar utama,
-serta memberikan masa tunggu baru untuk media lama yang belum terpakai.
-Jika Flyway aplikasi diaktifkan, migration dijalankan saat startup.
+Migration blog V9 tetap diperlukan untuk relasi media artikel. Riwayat migration
+dan metadata lama dipertahankan untuk kompatibilitas database.
 Role runtime memerlukan:
 ```sql
 GRANT SELECT, INSERT, UPDATE ON media TO artoku_blog_app;
 GRANT SELECT, INSERT, DELETE ON post_media TO artoku_blog_app;
 ```
-
-Pemantauan percobaan gagal:
-```sql
-SELECT id, provider_asset_id, unused_since, cleanup_attempts,
-       next_cleanup_at, last_cleanup_error
-FROM media
-WHERE lifecycle_status='ACTIVE' AND last_cleanup_error IS NOT NULL
-ORDER BY next_cleanup_at;
-```
-
-Dokumentasi API provider: [ImageKit Delete File](https://imagekit.io/docs/api-reference/digital-asset-management-dam/managing-assets/delete-file).
 
 ## Edit profil admin / pengguna CMS
 

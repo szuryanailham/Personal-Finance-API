@@ -8,7 +8,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
-/** Called inside the post transaction; media locks coordinate saves with cleanup. */
+/** Tracks media references inside the post transaction. */
 public class BlogMediaUsage {
     private final JdbcTemplate jdbc;
 
