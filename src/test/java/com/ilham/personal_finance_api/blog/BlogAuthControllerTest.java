@@ -133,7 +133,7 @@ class BlogAuthControllerTest extends AbstractIntegrationTest {
         create();
         assertTrue(financeUsers.findByEmail(email).isEmpty());
         assertEquals("9", financeFlyway.info().current().getVersion().toString());
-        assertEquals(9, jdbc.queryForObject("SELECT count(*) FROM flyway_schema_history WHERE success", Integer.class));
+        assertEquals(10, jdbc.queryForObject("SELECT count(*) FROM flyway_schema_history WHERE success", Integer.class));
         String stored = jdbc.queryForObject("SELECT password_hash FROM users WHERE email = ?", String.class, email);
         assertNotEquals(PASSWORD, stored);
         assertTrue(BCrypt.checkpw(PASSWORD, stored));
