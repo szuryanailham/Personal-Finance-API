@@ -40,6 +40,13 @@ public class BlogAuthController {
         return response(HttpStatus.OK, auth.me(authorization));
     }
 
+    @PatchMapping("/me")
+    public ResponseEntity<WebResponse<BlogUserResponse>> updateProfile(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+            @Valid @RequestBody com.ilham.personal_finance_api.blog.dto.UpdateBlogProfileRequest request) {
+        return response(HttpStatus.OK, auth.updateProfile(authorization, request));
+    }
+
     @PostMapping("/logout")
     public ResponseEntity<WebResponse<Void>> logout(
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization) {

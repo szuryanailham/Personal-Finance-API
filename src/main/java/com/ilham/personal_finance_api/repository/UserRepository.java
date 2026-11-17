@@ -13,6 +13,17 @@ import com.ilham.personal_finance_api.entity.User;
 
 
 public interface UserRepository extends JpaRepository<User, String> {
+    @Query(value = """
+        SELECT new com.ilham.personal_finance_api.dto.AdminUserResponse(
+            u.id, u.firstName, u.lastName, u.email, COUNT(t.id),
+            SUM(CASE WHEN t.id IS NOT NULL AND t.isDeleted = false THEN 1L ELSE 0L END))
+        FROM User u LEFT JOIN u.transactions t
+        GROUP BY u.id, u.firstName, u.lastName, u.email
+        ORDER BY LOWER(u.email), u.id
+        """, countQuery = "SELECT COUNT(u) FROM User u")
+    org.springframework.data.domain.Page<com.ilham.personal_finance_api.dto.AdminUserResponse> findAdminUsers(
+        org.springframework.data.domain.Pageable pageable);
+
     @Query("SELECT COUNT(u) > 0 FROM User u WHERE LOWER(u.email) = LOWER(:email)")
     boolean existsByEmail(@Param("email") String email);
     @Query("SELECT u FROM User u WHERE LOWER(u.email) = LOWER(:email)")

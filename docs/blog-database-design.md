@@ -292,3 +292,14 @@ post_slug_routes milik artikel tersebut. V7 juga membersihkan reservasi data ter
 sebelumnya. Slug historis post yang belum dihapus tetap direservasi. Pemulihan artikel
 harus memvalidasi ulang slug karena slugnya mungkin sudah dipakai post lain.
 Role runtime trigger membutuhkan SELECT, INSERT, DELETE pada post_slug_routes.
+
+## Media lifecycle (V9)
+
+`post_media(post_id, media_id)` mencatat media yang dipakai HTML atau gambar utama
+artikel aktif, termasuk draft. `media.unused_since` bernilai null saat dipakai,
+dan diisi ketika relasi terakhir dilepas. Cleanup hanya memproses ImageKit
+setelah grace period, lalu menandai `lifecycle_status='DELETED'` dan `deleted_at`.
+`cleanup_attempts`, `next_cleanup_at`, dan `last_cleanup_error` menyimpan retry
+lintas restart. Metadata media tidak dihapus secara fisik. Riwayat/revisi dan
+artikel soft-deleted tidak mempertahankan file; fitur restore perlu memeriksa
+ketersediaan media terlebih dahulu.

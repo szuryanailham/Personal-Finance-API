@@ -11,6 +11,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+@org.springframework.scheduling.annotation.EnableScheduling
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnProperty(name = "app.blog.enabled", havingValue = "true")
 public class BlogConfiguration {

@@ -8,7 +8,6 @@ import com.ilham.personal_finance_api.blog.dto.CreateBlogPostRequest;
 import com.ilham.personal_finance_api.blog.dto.BlogPostListResponse;
 
 import com.ilham.personal_finance_api.blog.dto.UpdateBlogPostRequest;
-import java.util.UUID;
 
 import jakarta.validation.Valid;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -33,32 +32,32 @@ public class BlogPostController {
                 .body(service.list(authorization, skip, limit));
     }
 
-    @GetMapping("/{id}")
+    @GetMapping("/{slug}")
     public ResponseEntity<WebResponse<BlogPostResponse>> detail(
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
-            @PathVariable UUID id) {
+            @PathVariable String slug) {
         var body = new WebResponse<BlogPostResponse>();
-        body.setData(service.detail(authorization, id));
+        body.setData(service.detail(authorization, slug));
         body.setMessage("Blog post retrieved successfully");
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(body);
     }
 
-    @DeleteMapping("/{id}")
+    @DeleteMapping("/{slug}")
     public ResponseEntity<WebResponse<Void>> delete(
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
-            @PathVariable UUID id) {
-        service.delete(authorization, id);
+            @PathVariable String slug) {
+        service.delete(authorization, slug);
         var body = new WebResponse<Void>();
         body.setMessage("Blog post deleted successfully");
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(body);
     }
 
-    @PatchMapping("/{id}")
+    @PatchMapping("/{slug}")
     public ResponseEntity<WebResponse<BlogPostResponse>> update(
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
-            @PathVariable UUID id, @Valid @RequestBody UpdateBlogPostRequest request) {
+            @PathVariable String slug, @Valid @RequestBody UpdateBlogPostRequest request) {
         var body = new WebResponse<BlogPostResponse>();
-        body.setData(service.update(authorization, id, request));
+        body.setData(service.update(authorization, slug, request));
         body.setMessage("Blog post updated successfully");
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(body);
     }
