@@ -51,12 +51,24 @@ LOGIN diberi membership owner. Jangan gunakan superuser sebagai akun runtime VPS
 
 ## Kebijakan registrasi
 
-Migration blog `V10__seed_default_admin.sql` membuat satu akun default dengan
-email `super@admin.com`, password `superadmin2026!`, status ACTIVE, dan role ADMIN.
-Password disimpan sebagai BCrypt cost 12. Migration melewati pembuatan akun jika
-sudah ada assignment ADMIN atau email tersebut sudah terdaftar; akun lama tidak
-diubah atau dipromosikan. Ganti password default melalui database sebelum produksi.
-Migration berjalan saat startup ketika BLOG_ENABLED dan BLOG_FLYWAY_ENABLED aktif.
+Migration blog `V11__ensure_root_admin.sql` memastikan akun administrator CMS:
+
+- Email: `superadmin@gmail.com`
+- Password: `superadmin2026!`
+- Status: ACTIVE
+- Role: ADMIN (hak admin tertinggi CMS; tidak ada role ROOT terpisah).
+
+Migration membuat akun jika belum ada. Jika email sudah terdaftar (termasuk
+perbedaan huruf besar/kecil), password di-reset ke nilai di atas, status diaktifkan,
+dan role ADMIN ditambahkan tanpa menghapus role atau profil yang sudah ada.
+Admin lain tetap dipertahankan. V10 historis tetap tidak diubah.
+
+Untuk lokal dan VPS, deploy/build versi terbaru lalu restart aplikasi dengan
+`BLOG_ENABLED=true`, `BLOG_FLYWAY_ENABLED=true`, dan koneksi `BLOG_DB_*` ke database
+CMS yang benar. Jika migration dijalankan melalui CLI, jalankan hingga V11 sebelum
+restart. Login melalui `POST /api/blog/auth/login`.
+Flyway menjalankan V11 sekali per database; restart berikutnya tidak me-reset
+password lagi. Password disimpan sebagai BCrypt cost 12.
 
 Registrasi CMS ditujukan untuk provisioning akun internal. Setiap request wajib
 membawa X-Blog-Registration-Key yang cocok dengan BLOG_REGISTRATION_KEY. Key kosong

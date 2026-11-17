@@ -133,11 +133,43 @@ class BlogAuthControllerTest extends AbstractIntegrationTest {
         create();
         assertTrue(financeUsers.findByEmail(email).isEmpty());
         assertEquals("9", financeFlyway.info().current().getVersion().toString());
-        assertEquals(10, jdbc.queryForObject("SELECT count(*) FROM flyway_schema_history WHERE success", Integer.class));
+        assertEquals(11, jdbc.queryForObject("SELECT count(*) FROM flyway_schema_history WHERE success", Integer.class));
         String stored = jdbc.queryForObject("SELECT password_hash FROM users WHERE email = ?", String.class, email);
         assertNotEquals(PASSWORD, stored);
         assertTrue(BCrypt.checkpw(PASSWORD, stored));
         assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM information_schema.tables WHERE table_name='post_daily_stats'", Integer.class));
+    }
+
+    @Test void defaultRootAdminCanLogin() throws Exception {
+        login("superadmin@gmail.com", "superadmin2026!")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.user.email").value("superadmin@gmail.com"))
+                .andExpect(jsonPath("$.data.user.roles[0]").value("ADMIN"));
+    }
+
+    @Test void rootAdminMigrationUpgradesExistingAccountAndPreservesIdentityAndRoles() {
+        String schema = "admin_upgrade_" + UUID.randomUUID().toString().replace("-", "");
+        var source = new org.springframework.jdbc.datasource.DriverManagerDataSource(
+                BLOG.getJdbcUrl() + (BLOG.getJdbcUrl().contains("?") ? "&" : "?") + "currentSchema=" + schema,
+                BLOG.getUsername(), BLOG.getPassword());
+        Flyway.configure().dataSource(source).schemas(schema).defaultSchema(schema)
+                .locations("classpath:db/blog-migration").target("10").load().migrate();
+        var legacy = new JdbcTemplate(source);
+        UUID id = UUID.randomUUID();
+        legacy.update("INSERT INTO users(id,display_name,email,password_hash,status) VALUES (?,'Existing','SuperAdmin@gmail.com','old-hash','SUSPENDED')", id);
+        legacy.update("INSERT INTO user_roles(user_id,role_id) SELECT ?,id FROM roles WHERE name='AUTHOR'", id);
+        var flyway = Flyway.configure().dataSource(source).schemas(schema).defaultSchema(schema)
+                .locations("classpath:db/blog-migration").load();
+        flyway.migrate();
+        assertEquals(id, legacy.queryForObject("SELECT id FROM users WHERE lower(email)='superadmin@gmail.com'", UUID.class));
+        assertEquals("Existing", legacy.queryForObject("SELECT display_name FROM users WHERE id=?", String.class, id));
+        assertEquals("ACTIVE", legacy.queryForObject("SELECT status FROM users WHERE id=?", String.class, id));
+        assertTrue(BCrypt.checkpw("superadmin2026!", legacy.queryForObject("SELECT password_hash FROM users WHERE id=?", String.class, id)));
+        assertEquals(java.util.List.of("ADMIN", "AUTHOR"), legacy.queryForList(
+                "SELECT r.name FROM roles r JOIN user_roles ur ON ur.role_id=r.id WHERE ur.user_id=? ORDER BY r.name", String.class, id));
+        legacy.update("UPDATE users SET password_hash='changed-after-migration' WHERE id=?", id);
+        flyway.migrate();
+        assertEquals("changed-after-migration", legacy.queryForObject("SELECT password_hash FROM users WHERE id=?", String.class, id));
     }
 
     @Test void requiresRegistrationKeyAndCannotChooseAdmin() throws Exception {
