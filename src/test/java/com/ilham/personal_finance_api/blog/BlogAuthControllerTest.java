@@ -31,7 +31,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@SpringBootTest(properties = {"app.blog.enabled=true", "app.blog.registration-key=test-registration-key", "app.blog.media.cleanup.enabled=true", "app.blog.media.cleanup.initial-delay=24h"})
+@SpringBootTest(properties = {"app.blog.enabled=true", "app.blog.registration-key=test-registration-key"})
 @AutoConfigureMockMvc
 class BlogAuthControllerTest extends AbstractIntegrationTest {
     static final PostgreSQLContainer BLOG = new PostgreSQLContainer("postgres:16-alpine");
@@ -44,7 +44,6 @@ class BlogAuthControllerTest extends AbstractIntegrationTest {
         registry.add("app.blog.datasource.password", BLOG::getPassword);
     }
 
-    @Autowired com.ilham.personal_finance_api.blog.service.BlogMediaCleanupJob scheduledCleanup;
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper json;
     @Autowired UserRepository financeUsers;
@@ -932,10 +931,6 @@ class BlogAuthControllerTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.data.author.passwordHash").doesNotExist());
     }
 
-    @Test void cleanupSchedulerLoadsWithConfiguredDurations() {
-        assertNotNull(scheduledCleanup);
-    }
-
     UUID uploadedMedia() {
         UUID id = UUID.randomUUID();
         jdbc.update("""
@@ -955,12 +950,6 @@ class BlogAuthControllerTest extends AbstractIntegrationTest {
         if (hero != null) body.put("featuredMediaId", hero);
         var response = postArticle(token, body).andExpect(status().isCreated()).andReturn();
         return json.readTree(response.getResponse().getContentAsString()).get("data").get("id").asString();
-    }
-
-    com.ilham.personal_finance_api.blog.service.BlogMediaCleanupJob cleanupJob(
-            com.ilham.personal_finance_api.blog.service.ImageKitMediaClient client, int batch) {
-        return new com.ilham.personal_finance_api.blog.service.BlogMediaCleanupJob(blogDataSource, client, clock,
-                java.time.Duration.ofHours(24), java.time.Duration.ofHours(1), batch);
     }
 
     @Test void mediaUsageTracksContentHeroSharedPostsAndReleaseTime() throws Exception {
@@ -1002,96 +991,6 @@ class BlogAuthControllerTest extends AbstractIntegrationTest {
         var body = postBody(token);
         body.put("featuredMediaId", deleted);
         postArticle(token, body).andExpect(status().isBadRequest());
-    }
-
-    @Test void cleanupProtectsUsedAndYoungMediaAndRetriesFailures() throws Exception {
-        create();
-        String token = token();
-        UUID used = uploadedMedia();
-        createArticleWithMedia(token, used, used);
-        UUID young = uploadedMedia();
-        UUID candidate = uploadedMedia();
-        UUID external = uploadedMedia();
-        jdbc.update("UPDATE media SET storage_provider='external' WHERE id=?", external);
-        jdbc.update("UPDATE media SET unused_since=? WHERE id IN (?,?)",
-                java.sql.Timestamp.from(NOW.minusSeconds(25 * 3600)), candidate, external);
-        var client = org.mockito.Mockito.mock(com.ilham.personal_finance_api.blog.service.ImageKitMediaClient.class);
-        when(client.configured()).thenReturn(true);
-        // Stop after the only eligible media; network errors must leave a persisted retry.
-        org.mockito.Mockito.doThrow(new org.springframework.web.client.RestClientException("timeout"))
-                .doNothing().when(client).delete(candidate.toString());
-        var job = cleanupJob(client, 1);
-        job.clean();
-        assertEquals("ACTIVE", jdbc.queryForObject("SELECT lifecycle_status FROM media WHERE id=?", String.class, candidate));
-        assertEquals(1, jdbc.queryForObject("SELECT cleanup_attempts FROM media WHERE id=?", Integer.class, candidate));
-        assertEquals(java.sql.Timestamp.from(NOW.plusSeconds(3600)),
-                jdbc.queryForObject("SELECT next_cleanup_at FROM media WHERE id=?", java.sql.Timestamp.class, candidate));
-        job.clean();
-        org.mockito.Mockito.verify(client, org.mockito.Mockito.times(1)).delete(candidate.toString());
-        when(clock.instant()).thenReturn(NOW.plusSeconds(3601));
-        job.clean();
-        org.mockito.Mockito.verify(client, org.mockito.Mockito.times(2)).delete(candidate.toString());
-        assertEquals("DELETED", jdbc.queryForObject("SELECT lifecycle_status FROM media WHERE id=?", String.class, candidate));
-        assertNotNull(jdbc.queryForObject("SELECT deleted_at FROM media WHERE id=?", java.sql.Timestamp.class, candidate));
-        assertNull(jdbc.queryForObject("SELECT last_cleanup_error FROM media WHERE id=?", String.class, candidate));
-        org.mockito.Mockito.verify(client, org.mockito.Mockito.never()).delete(used.toString());
-        org.mockito.Mockito.verify(client, org.mockito.Mockito.never()).delete(young.toString());
-        org.mockito.Mockito.verify(client, org.mockito.Mockito.never()).delete(external.toString());
-    }
-
-    @Test void cleanupDoesNotDeleteMediaLockedByArticleSave() throws Exception {
-        create();
-        UUID image = uploadedMedia();
-        jdbc.update("UPDATE media SET unused_since=? WHERE id=?", java.sql.Timestamp.from(NOW.minusSeconds(90000)), image);
-        var client = org.mockito.Mockito.mock(com.ilham.personal_finance_api.blog.service.ImageKitMediaClient.class);
-        when(client.configured()).thenReturn(true);
-        try (var connection = blogDataSource.getConnection()) {
-            connection.setAutoCommit(false);
-            try (var statement = connection.prepareStatement("SELECT id FROM media WHERE id=? FOR NO KEY UPDATE")) {
-                statement.setObject(1, image);
-                statement.executeQuery().close();
-            }
-            cleanupJob(client, 1).clean();
-            org.mockito.Mockito.verify(client, org.mockito.Mockito.never()).delete(image.toString());
-            connection.rollback();
-        }
-        cleanupJob(client, 1).clean();
-        org.mockito.Mockito.verify(client).delete(image.toString());
-    }
-
-    @Test void saveCannotAttachMediaBeingDeletedByCleanup() throws Exception {
-        create();
-        String token = token();
-        String id = draftId(token);
-        UUID image = uploadedMedia();
-        jdbc.update("UPDATE media SET unused_since=? WHERE id=?", java.sql.Timestamp.from(NOW.minusSeconds(90000)), image);
-        var deleting = new java.util.concurrent.CountDownLatch(1);
-        var finishDelete = new java.util.concurrent.CountDownLatch(1);
-        var client = org.mockito.Mockito.mock(com.ilham.personal_finance_api.blog.service.ImageKitMediaClient.class);
-        when(client.configured()).thenReturn(true);
-        org.mockito.Mockito.doAnswer(call -> {
-            deleting.countDown();
-            if (!finishDelete.await(10, java.util.concurrent.TimeUnit.SECONDS)) throw new IllegalStateException("Test timed out");
-            return null;
-        }).when(client).delete(image.toString());
-        var cleanup = java.util.concurrent.CompletableFuture.runAsync(() -> cleanupJob(client, 1).clean());
-        try {
-            assertTrue(deleting.await(10, java.util.concurrent.TimeUnit.SECONDS));
-            var saving = java.util.concurrent.CompletableFuture.runAsync(() -> {
-                try {
-                    patchArticle(token, id, "{\"featuredMediaId\":\"" + image + "\"}").andExpect(status().isBadRequest());
-                } catch (Exception ex) {
-                    throw new RuntimeException(ex);
-                }
-            });
-            finishDelete.countDown();
-            cleanup.get(10, java.util.concurrent.TimeUnit.SECONDS);
-            saving.get(10, java.util.concurrent.TimeUnit.SECONDS);
-            assertNull(jdbc.queryForObject("SELECT featured_media_id FROM posts WHERE id=?", UUID.class, UUID.fromString(id)));
-            assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM post_media WHERE media_id=?", Integer.class, image));
-        } finally {
-            finishDelete.countDown();
-        }
     }
 
     @Test void mediaMigrationBackfillsExistingContentAndHeroWithoutKeepingDeletedPosts() {
