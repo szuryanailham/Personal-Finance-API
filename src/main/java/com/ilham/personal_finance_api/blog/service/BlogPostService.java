@@ -10,7 +10,6 @@ import com.ilham.personal_finance_api.blog.dto.BlogPostListResponse;
 import com.ilham.personal_finance_api.blog.dto.UpdateBlogPostRequest;
 import com.ilham.personal_finance_api.blog.dto.PublicBlogPostListResponse;
 import com.ilham.personal_finance_api.blog.dto.PublicBlogPostResponse;
-import java.util.UUID;
 
 import java.time.Clock;
 import java.util.HashSet;
@@ -63,13 +62,13 @@ public class BlogPostService {
         return store.posts(skip, limit);
     }
 
-    public BlogPostResponse detail(String authorization, UUID id) {
+    public BlogPostResponse detail(String authorization, String slug) {
         var user = auth.me(authorization);
         boolean editor = user.roles().stream().anyMatch(r -> r.equals("ADMIN") || r.equals("EDITOR"));
         if (!editor && !user.roles().contains("AUTHOR")) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "A CMS author role is required");
         }
-        var post = store.post(id).orElseThrow(() ->
+        var post = store.post(slug).orElseThrow(() ->
                 new ResponseStatusException(HttpStatus.NOT_FOUND, "Blog post not found"));
         if (!editor && !user.id().equals(post.authorId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Authors may only view their own posts");
@@ -77,20 +76,20 @@ public class BlogPostService {
         return post;
     }
 
-    public void delete(String authorization, UUID id) {
+    public void delete(String authorization, String slug) {
         var user = auth.me(authorization);
         boolean editor = user.roles().stream().anyMatch(r -> r.equals("ADMIN") || r.equals("EDITOR"));
         if (!editor && !user.roles().contains("AUTHOR")) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "A CMS author role is required");
         }
-        store.softDeletePost(id, clock.instant(), (authorId, status) -> {
+        store.softDeletePost(slug, clock.instant(), (authorId, status) -> {
             if (!editor && (!user.id().equals(authorId) || !status.equals("DRAFT"))) {
                 throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Authors may only delete their own drafts");
             }
         });
     }
 
-    public BlogPostResponse update(String authorization, UUID id, UpdateBlogPostRequest request) {
+    public BlogPostResponse update(String authorization, String slug, UpdateBlogPostRequest request) {
         var user = auth.me(authorization);
         boolean editor = user.roles().stream().anyMatch(r -> r.equals("ADMIN") || r.equals("EDITOR"));
         if (!editor && !user.roles().contains("AUTHOR")) {
@@ -98,7 +97,7 @@ public class BlogPostService {
         }
         if (request.empty()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Supply at least one field to update");
         try {
-            return store.updatePost(id, current -> {
+            return store.updatePost(slug, clock.instant(), current -> {
                 String status = request.has("status") ? request.status() : current.status();
                 if (!editor && (!user.id().equals(current.authorId()) || !current.status().equals("DRAFT")
                         || !status.equals("DRAFT"))) {
@@ -121,12 +120,13 @@ public class BlogPostService {
                         request.has("title") ? request.title() : current.title(),
                         request.has("slug") ? request.slug() : current.slug(),
                         request.has("excerpt") ? request.excerpt() : current.excerpt(), html, status,
-                        publishedAt, minutes, categories, tags, current.createdAt(), current.updatedAt());
+                        publishedAt, minutes, categories, tags, current.createdAt(), current.updatedAt(),
+                        request.has("featuredMediaId") ? request.featuredMediaId() : current.featuredMediaId());
             });
         } catch (DuplicateKeyException ex) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Post slug is already used or reserved");
         } catch (DataIntegrityViolationException ex) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid category or tag reference");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid category, tag, or featured media reference");
         }
     }
 

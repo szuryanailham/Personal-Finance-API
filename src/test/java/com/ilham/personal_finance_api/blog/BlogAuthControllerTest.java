@@ -31,7 +31,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@SpringBootTest(properties = {"app.blog.enabled=true", "app.blog.registration-key=test-registration-key"})
+@SpringBootTest(properties = {"app.blog.enabled=true", "app.blog.registration-key=test-registration-key", "app.blog.media.cleanup.enabled=true", "app.blog.media.cleanup.initial-delay=24h"})
 @AutoConfigureMockMvc
 class BlogAuthControllerTest extends AbstractIntegrationTest {
     static final PostgreSQLContainer BLOG = new PostgreSQLContainer("postgres:16-alpine");
@@ -44,6 +44,7 @@ class BlogAuthControllerTest extends AbstractIntegrationTest {
         registry.add("app.blog.datasource.password", BLOG::getPassword);
     }
 
+    @Autowired com.ilham.personal_finance_api.blog.service.BlogMediaCleanupJob scheduledCleanup;
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper json;
     @Autowired UserRepository financeUsers;
@@ -92,11 +93,47 @@ class BlogAuthControllerTest extends AbstractIntegrationTest {
         return json.readTree(result.getResponse().getContentAsString()).get("data").get("token").asString();
     }
 
+    @Test void editsOwnProfileAndPreservesOmittedFields() throws Exception {
+        create();
+        String token = token();
+        mvc.perform(patch("/api/blog/auth/me").header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON).content("""
+                        {"displayName":" Updated Admin ","photoProfile":"https://example.com/avatar.png",
+                         "description":"Financial writer","socialMedia":{"instagram":"https://instagram.com/admin"}}
+                        """))
+                .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.data.displayName").value("Updated Admin"))
+                .andExpect(jsonPath("$.data.email").value(email))
+                .andExpect(jsonPath("$.data.roles[0]").value("AUTHOR"));
+        mvc.perform(patch("/api/blog/auth/me").header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"description\":null,\"socialMedia\":{}}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.displayName").value("Updated Admin"))
+                .andExpect(jsonPath("$.data.photoProfile").value("https://example.com/avatar.png"))
+                .andExpect(jsonPath("$.data.description").isEmpty())
+                .andExpect(jsonPath("$.data.socialMedia").isEmpty());
+        mvc.perform(get("/api/blog/auth/me").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.displayName").value("Updated Admin"));
+    }
+
+    @Test void profileUpdateRequiresSessionAndValidInput() throws Exception {
+        mvc.perform(patch("/api/blog/auth/me").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"displayName\":\"Admin\"}")).andExpect(status().isUnauthorized());
+        create();
+        String token = token();
+        for (String body : new String[]{"{}", "{\"displayName\":null}", "{\"displayName\":\"  \"}",
+                "{\"photoProfile\":\"javascript:alert(1)\"}", "{\"socialMedia\":{\"website\":\"invalid\"}}"}) {
+            mvc.perform(patch("/api/blog/auth/me").header("Authorization", "Bearer " + token)
+                    .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isBadRequest());
+        }
+        mvc.perform(get("/api/blog/auth/me").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.displayName").value("CMS Author"));
+    }
+
     @Test void registersOnlyInBlogAndKeepsFinanceFlyway() throws Exception {
         create();
         assertTrue(financeUsers.findByEmail(email).isEmpty());
         assertEquals("9", financeFlyway.info().current().getVersion().toString());
-        assertEquals(7, jdbc.queryForObject("SELECT count(*) FROM flyway_schema_history WHERE success", Integer.class));
+        assertEquals(9, jdbc.queryForObject("SELECT count(*) FROM flyway_schema_history WHERE success", Integer.class));
         String stored = jdbc.queryForObject("SELECT password_hash FROM users WHERE email = ?", String.class, email);
         assertNotEquals(PASSWORD, stored);
         assertTrue(BCrypt.checkpw(PASSWORD, stored));
@@ -468,6 +505,8 @@ class BlogAuthControllerTest extends AbstractIntegrationTest {
                     .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
                     .andExpect(jsonPath("$.data.length()").value(1))
                     .andExpect(jsonPath("$.data[0].id").value(first.toString()))
+                    .andExpect(jsonPath("$.data[0].authorName").value("CMS Author"))
+                    .andExpect(jsonPath("$.data[0].authorId").doesNotExist())
                     .andExpect(jsonPath("$.data[0].status").value("DRAFT"))
                     .andExpect(jsonPath("$.data[0].contentHtml").doesNotExist())
                     .andExpect(jsonPath("$.paging.skip").value(0))
@@ -511,8 +550,39 @@ class BlogAuthControllerTest extends AbstractIntegrationTest {
         return json.readTree(result.getResponse().getContentAsString()).get("data").get("id").asString();
     }
 
+    String articleSlug(String idOrSlug) {
+        try {
+            var slugs = jdbc.queryForList("SELECT slug FROM posts WHERE id=?", String.class, UUID.fromString(idOrSlug));
+            return slugs.isEmpty() ? idOrSlug : slugs.getFirst();
+        } catch (IllegalArgumentException ex) {
+            return idOrSlug;
+        }
+    }
+
+    @Test void detailEditAndDeleteUseCurrentSlug() throws Exception {
+        create();
+        String token = token();
+        String id = draftId(token);
+        String oldSlug = articleSlug(id);
+        String newSlug = "renamed-" + UUID.randomUUID();
+        detailArticle(token, oldSlug).andExpect(status().isOk());
+        mvc.perform(get("/api/blog/posts/" + id).header("Authorization", "Bearer " + token))
+                .andExpect(status().isNotFound());
+        mvc.perform(patch("/api/blog/posts/" + id).header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"title\":\"By ID\"}"))
+                .andExpect(status().isNotFound());
+        patchArticle(token, oldSlug, json.writeValueAsString(Map.of("slug", newSlug)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.slug").value(newSlug));
+        detailArticle(token, oldSlug).andExpect(status().isNotFound());
+        detailArticle(token, newSlug).andExpect(status().isOk());
+        patchArticle(token, oldSlug, "{\"title\":\"Old slug\"}").andExpect(status().isNotFound());
+        deleteArticle(token, oldSlug).andExpect(status().isNotFound());
+        deleteArticle(token, newSlug).andExpect(status().isOk());
+        deleteArticle(token, newSlug).andExpect(status().isNotFound());
+    }
+
     ResultActions patchArticle(String token, String id, String body) throws Exception {
-        var request = patch("/api/blog/posts/" + id).contentType(MediaType.APPLICATION_JSON).content(body);
+        var request = patch("/api/blog/posts/" + articleSlug(id)).contentType(MediaType.APPLICATION_JSON).content(body);
         if (token != null) request.header("Authorization", "Bearer " + token);
         return mvc.perform(request);
     }
@@ -595,7 +665,7 @@ class BlogAuthControllerTest extends AbstractIntegrationTest {
     }
 
     ResultActions detailArticle(String token, String id) throws Exception {
-        var request = get("/api/blog/posts/" + id);
+        var request = get("/api/blog/posts/" + articleSlug(id));
         if (token != null) request.header("Authorization", "Bearer " + token);
         return mvc.perform(request);
     }
@@ -632,7 +702,7 @@ class BlogAuthControllerTest extends AbstractIntegrationTest {
         String id = draftId(ownerToken);
         detailArticle(null, id).andExpect(status().isUnauthorized());
         detailArticle("invalid-token", id).andExpect(status().isUnauthorized());
-        detailArticle(ownerToken, "invalid-id").andExpect(status().isBadRequest());
+        detailArticle(ownerToken, "missing-slug").andExpect(status().isNotFound());
         detailArticle(ownerToken, UUID.randomUUID().toString()).andExpect(status().isNotFound());
         email = UUID.randomUUID() + "@example.com";
         create();
@@ -650,7 +720,7 @@ class BlogAuthControllerTest extends AbstractIntegrationTest {
     }
 
     ResultActions deleteArticle(String token, String id) throws Exception {
-        var request = delete("/api/blog/posts/" + id);
+        var request = delete("/api/blog/posts/" + articleSlug(id));
         if (token != null) request.header("Authorization", "Bearer " + token);
         return mvc.perform(request);
     }
@@ -687,7 +757,7 @@ class BlogAuthControllerTest extends AbstractIntegrationTest {
         String id = draftId(ownerToken);
         deleteArticle(null, id).andExpect(status().isUnauthorized());
         deleteArticle("invalid-token", id).andExpect(status().isUnauthorized());
-        deleteArticle(ownerToken, "invalid-id").andExpect(status().isBadRequest());
+        deleteArticle(ownerToken, "invalid-id").andExpect(status().isNotFound());
         deleteArticle(ownerToken, UUID.randomUUID().toString()).andExpect(status().isNotFound());
         email = UUID.randomUUID() + "@example.com";
         create();
@@ -748,6 +818,15 @@ class BlogAuthControllerTest extends AbstractIntegrationTest {
         mvc.perform(get("/api/blog/published").param("limit", "100"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.paging.totalItem").value(total))
                 .andExpect(jsonPath("$.data[*].id", org.hamcrest.Matchers.hasItem(id)))
+                .andExpect(jsonPath("$.data[?(@.id == '" + id + "')].authorName",
+                        org.hamcrest.Matchers.contains("CMS Author")))
+                .andExpect(jsonPath("$.data[?(@.id == '" + id + "')].categories[*].id",
+                        org.hamcrest.Matchers.hasItem(jdbc.queryForObject(
+                                "SELECT category_id::text FROM post_categories WHERE post_id=?", String.class, uuid))))
+                .andExpect(jsonPath("$.data[?(@.id == '" + id + "')].categories[*].name",
+                        org.hamcrest.Matchers.hasItem(org.hamcrest.Matchers.not(org.hamcrest.Matchers.isEmptyOrNullString()))))
+                .andExpect(jsonPath("$.data[?(@.id == '" + id + "')].categories[*].slug",
+                        org.hamcrest.Matchers.hasItem(org.hamcrest.Matchers.not(org.hamcrest.Matchers.isEmptyOrNullString()))))
                 .andExpect(jsonPath("$.data[0].contentHtml").doesNotExist())
                 .andExpect(jsonPath("$.data[0].authorId").doesNotExist());
         mvc.perform(get("/api/blog/published").param("skip", String.valueOf(total)))
@@ -761,6 +840,263 @@ class BlogAuthControllerTest extends AbstractIntegrationTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.paging.totalItem").value(total - 1))
                 .andExpect(jsonPath("$.data[*].id", org.hamcrest.Matchers.not(org.hamcrest.Matchers.hasItem(id))));
         mvc.perform(get("/api/blog/published/missing-article")).andExpect(status().isNotFound());
+    }
+
+    @Test void publicArticleListAndDetailIncludeHeroImage() throws Exception {
+        create();
+        String token = token();
+        String id = draftId(token);
+        UUID uuid = UUID.fromString(id);
+        String slug = articleSlug(id);
+        jdbc.update("UPDATE posts SET status='PUBLISHED',published_at=? WHERE id=?",
+                java.sql.Timestamp.from(NOW), uuid);
+        for (String path : new String[]{"/api/blog/published/" + slug, "/api/blog/published?limit=100"}) {
+            String field = path.contains("?") ? "$.data[?(@.id == '" + id + "')].heroImage" : "$.data.heroImage";
+            mvc.perform(get(path)).andExpect(status().isOk())
+                    .andExpect(jsonPath(field).value(path.contains("?")
+                            ? org.hamcrest.Matchers.contains(org.hamcrest.Matchers.nullValue())
+                            : org.hamcrest.Matchers.nullValue()));
+        }
+        UUID mediaId = UUID.randomUUID();
+        String hero = "https://example.com/blog/hero.jpg";
+        jdbc.update("""
+                INSERT INTO media(id,uploaded_by,url,mime_type,file_size_bytes,storage_provider)
+                SELECT ?,author_id,?,'image/jpeg',123,'test' FROM posts WHERE id=?
+                """, mediaId, hero, uuid);
+        jdbc.update("UPDATE posts SET featured_media_id=? WHERE id=?", mediaId, uuid);
+        mvc.perform(get("/api/blog/published/" + slug)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.heroImage").value(hero));
+        mvc.perform(get("/api/blog/published").param("limit", "100")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[?(@.id == '" + id + "')].heroImage",
+                        org.hamcrest.Matchers.contains(hero)));
+    }
+
+    @Test void publicDetailIncludesAuthorProfileAndSocialLinks() throws Exception {
+        create();
+        String token = token();
+        String id = draftId(token);
+        UUID uuid = UUID.fromString(id);
+        String path = "/api/blog/published/" + articleSlug(id);
+        jdbc.update("UPDATE posts SET status='PUBLISHED',published_at=? WHERE id=?",
+                java.sql.Timestamp.from(NOW), uuid);
+        mvc.perform(get(path)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.author.name").value("CMS Author"))
+                .andExpect(jsonPath("$.data.author.photoProfile").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.data.author.description").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.data.author.socialMedia").isEmpty());
+        UUID authorId = jdbc.queryForObject("SELECT author_id FROM posts WHERE id=?", UUID.class, uuid);
+        jdbc.update("UPDATE users SET photo_profile=?,description=? WHERE id=?",
+                "https://example.com/avatar.jpg", "Penulis tentang keuangan pribadi.", authorId);
+        jdbc.update("INSERT INTO author_social_links(author_id,platform,url) VALUES (?,?,?),(?,?,?)",
+                authorId, "instagram", "https://instagram.com/author",
+                authorId, "linkedin", "https://linkedin.com/in/author");
+        mvc.perform(get(path)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.author.name").value("CMS Author"))
+                .andExpect(jsonPath("$.data.author.photoProfile").value("https://example.com/avatar.jpg"))
+                .andExpect(jsonPath("$.data.author.description").value("Penulis tentang keuangan pribadi."))
+                .andExpect(jsonPath("$.data.author.socialMedia.instagram").value("https://instagram.com/author"))
+                .andExpect(jsonPath("$.data.author.socialMedia.linkedin").value("https://linkedin.com/in/author"))
+                .andExpect(jsonPath("$.data.author.email").doesNotExist())
+                .andExpect(jsonPath("$.data.author.passwordHash").doesNotExist());
+    }
+
+    @Test void cleanupSchedulerLoadsWithConfiguredDurations() {
+        assertNotNull(scheduledCleanup);
+    }
+
+    UUID uploadedMedia() {
+        UUID id = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO media(id,uploaded_by,url,mime_type,file_size_bytes,storage_provider,provider_asset_id,unused_since)
+                SELECT ?,id,?,'image/png',1,'imagekit',?,? FROM users WHERE email=?
+                """, id, "https://ik.imagekit.io/test/" + id + ".png", id.toString(),
+                java.sql.Timestamp.from(NOW), email);
+        return id;
+    }
+
+    String mediaUrl(UUID id) { return "https://ik.imagekit.io/test/" + id + ".png"; }
+
+    String createArticleWithMedia(String token, UUID content, UUID hero) throws Exception {
+        var body = postBody(token);
+        body.put("contentHtml", "<p>Article</p>" + (content == null ? "" :
+                "<img src='" + mediaUrl(content) + "?tr=w-800&amp;x=1'><img src='" + mediaUrl(content) + "'>"));
+        if (hero != null) body.put("featuredMediaId", hero);
+        var response = postArticle(token, body).andExpect(status().isCreated()).andReturn();
+        return json.readTree(response.getResponse().getContentAsString()).get("data").get("id").asString();
+    }
+
+    com.ilham.personal_finance_api.blog.service.BlogMediaCleanupJob cleanupJob(
+            com.ilham.personal_finance_api.blog.service.ImageKitMediaClient client, int batch) {
+        return new com.ilham.personal_finance_api.blog.service.BlogMediaCleanupJob(blogDataSource, client, clock,
+                java.time.Duration.ofHours(24), java.time.Duration.ofHours(1), batch);
+    }
+
+    @Test void mediaUsageTracksContentHeroSharedPostsAndReleaseTime() throws Exception {
+        create();
+        String token = token();
+        UUID image = uploadedMedia();
+        UUID replacement = uploadedMedia();
+        String first = createArticleWithMedia(token, image, image);
+        String second = createArticleWithMedia(token, image, null);
+        assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM post_media WHERE media_id=?", Integer.class, image));
+        assertNull(jdbc.queryForObject("SELECT unused_since FROM media WHERE id=?", java.sql.Timestamp.class, image));
+        patchArticle(token, first, "{\"contentHtml\":\"<p>No inline image</p>\"}").andExpect(status().isOk());
+        assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM post_media WHERE media_id=?", Integer.class, image));
+        patchArticle(token, first, json.writeValueAsString(Map.of("featuredMediaId", replacement)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.featuredMediaId").value(replacement.toString()));
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM post_media WHERE media_id=?", Integer.class, image));
+        deleteArticle(token, second).andExpect(status().isOk());
+        assertEquals(java.sql.Timestamp.from(NOW),
+                jdbc.queryForObject("SELECT unused_since FROM media WHERE id=?", java.sql.Timestamp.class, image));
+        patchArticle(token, first, "{\"featuredMediaId\":null}").andExpect(status().isOk());
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM post_media WHERE media_id=?", Integer.class, replacement));
+        assertEquals(java.sql.Timestamp.from(NOW),
+                jdbc.queryForObject("SELECT unused_since FROM media WHERE id=?", java.sql.Timestamp.class, replacement));
+    }
+
+    @Test void invalidMediaRollsBackPostAndUsageChanges() throws Exception {
+        create();
+        String token = token();
+        UUID image = uploadedMedia();
+        String id = createArticleWithMedia(token, image, image);
+        patchArticle(token, id, json.writeValueAsString(Map.of("featuredMediaId", UUID.randomUUID(),
+                "contentHtml", "<p>Changed</p>"))).andExpect(status().isBadRequest());
+        assertEquals(image, jdbc.queryForObject("SELECT featured_media_id FROM posts WHERE id=?", UUID.class, UUID.fromString(id)));
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM post_media WHERE post_id=?", Integer.class, UUID.fromString(id)));
+        UUID deleted = uploadedMedia();
+        jdbc.update("UPDATE media SET lifecycle_status='DELETED',deleted_at=? WHERE id=?", java.sql.Timestamp.from(NOW), deleted);
+        patchArticle(token, id, json.writeValueAsString(Map.of("contentHtml",
+                "<p>Reused</p><img src='" + mediaUrl(deleted) + "'>"))).andExpect(status().isBadRequest());
+        var body = postBody(token);
+        body.put("featuredMediaId", deleted);
+        postArticle(token, body).andExpect(status().isBadRequest());
+    }
+
+    @Test void cleanupProtectsUsedAndYoungMediaAndRetriesFailures() throws Exception {
+        create();
+        String token = token();
+        UUID used = uploadedMedia();
+        createArticleWithMedia(token, used, used);
+        UUID young = uploadedMedia();
+        UUID candidate = uploadedMedia();
+        UUID external = uploadedMedia();
+        jdbc.update("UPDATE media SET storage_provider='external' WHERE id=?", external);
+        jdbc.update("UPDATE media SET unused_since=? WHERE id IN (?,?)",
+                java.sql.Timestamp.from(NOW.minusSeconds(25 * 3600)), candidate, external);
+        var client = org.mockito.Mockito.mock(com.ilham.personal_finance_api.blog.service.ImageKitMediaClient.class);
+        when(client.configured()).thenReturn(true);
+        // Stop after the only eligible media; network errors must leave a persisted retry.
+        org.mockito.Mockito.doThrow(new org.springframework.web.client.RestClientException("timeout"))
+                .doNothing().when(client).delete(candidate.toString());
+        var job = cleanupJob(client, 1);
+        job.clean();
+        assertEquals("ACTIVE", jdbc.queryForObject("SELECT lifecycle_status FROM media WHERE id=?", String.class, candidate));
+        assertEquals(1, jdbc.queryForObject("SELECT cleanup_attempts FROM media WHERE id=?", Integer.class, candidate));
+        assertEquals(java.sql.Timestamp.from(NOW.plusSeconds(3600)),
+                jdbc.queryForObject("SELECT next_cleanup_at FROM media WHERE id=?", java.sql.Timestamp.class, candidate));
+        job.clean();
+        org.mockito.Mockito.verify(client, org.mockito.Mockito.times(1)).delete(candidate.toString());
+        when(clock.instant()).thenReturn(NOW.plusSeconds(3601));
+        job.clean();
+        org.mockito.Mockito.verify(client, org.mockito.Mockito.times(2)).delete(candidate.toString());
+        assertEquals("DELETED", jdbc.queryForObject("SELECT lifecycle_status FROM media WHERE id=?", String.class, candidate));
+        assertNotNull(jdbc.queryForObject("SELECT deleted_at FROM media WHERE id=?", java.sql.Timestamp.class, candidate));
+        assertNull(jdbc.queryForObject("SELECT last_cleanup_error FROM media WHERE id=?", String.class, candidate));
+        org.mockito.Mockito.verify(client, org.mockito.Mockito.never()).delete(used.toString());
+        org.mockito.Mockito.verify(client, org.mockito.Mockito.never()).delete(young.toString());
+        org.mockito.Mockito.verify(client, org.mockito.Mockito.never()).delete(external.toString());
+    }
+
+    @Test void cleanupDoesNotDeleteMediaLockedByArticleSave() throws Exception {
+        create();
+        UUID image = uploadedMedia();
+        jdbc.update("UPDATE media SET unused_since=? WHERE id=?", java.sql.Timestamp.from(NOW.minusSeconds(90000)), image);
+        var client = org.mockito.Mockito.mock(com.ilham.personal_finance_api.blog.service.ImageKitMediaClient.class);
+        when(client.configured()).thenReturn(true);
+        try (var connection = blogDataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try (var statement = connection.prepareStatement("SELECT id FROM media WHERE id=? FOR NO KEY UPDATE")) {
+                statement.setObject(1, image);
+                statement.executeQuery().close();
+            }
+            cleanupJob(client, 1).clean();
+            org.mockito.Mockito.verify(client, org.mockito.Mockito.never()).delete(image.toString());
+            connection.rollback();
+        }
+        cleanupJob(client, 1).clean();
+        org.mockito.Mockito.verify(client).delete(image.toString());
+    }
+
+    @Test void saveCannotAttachMediaBeingDeletedByCleanup() throws Exception {
+        create();
+        String token = token();
+        String id = draftId(token);
+        UUID image = uploadedMedia();
+        jdbc.update("UPDATE media SET unused_since=? WHERE id=?", java.sql.Timestamp.from(NOW.minusSeconds(90000)), image);
+        var deleting = new java.util.concurrent.CountDownLatch(1);
+        var finishDelete = new java.util.concurrent.CountDownLatch(1);
+        var client = org.mockito.Mockito.mock(com.ilham.personal_finance_api.blog.service.ImageKitMediaClient.class);
+        when(client.configured()).thenReturn(true);
+        org.mockito.Mockito.doAnswer(call -> {
+            deleting.countDown();
+            if (!finishDelete.await(10, java.util.concurrent.TimeUnit.SECONDS)) throw new IllegalStateException("Test timed out");
+            return null;
+        }).when(client).delete(image.toString());
+        var cleanup = java.util.concurrent.CompletableFuture.runAsync(() -> cleanupJob(client, 1).clean());
+        try {
+            assertTrue(deleting.await(10, java.util.concurrent.TimeUnit.SECONDS));
+            var saving = java.util.concurrent.CompletableFuture.runAsync(() -> {
+                try {
+                    patchArticle(token, id, "{\"featuredMediaId\":\"" + image + "\"}").andExpect(status().isBadRequest());
+                } catch (Exception ex) {
+                    throw new RuntimeException(ex);
+                }
+            });
+            finishDelete.countDown();
+            cleanup.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            saving.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            assertNull(jdbc.queryForObject("SELECT featured_media_id FROM posts WHERE id=?", UUID.class, UUID.fromString(id)));
+            assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM post_media WHERE media_id=?", Integer.class, image));
+        } finally {
+            finishDelete.countDown();
+        }
+    }
+
+    @Test void mediaMigrationBackfillsExistingContentAndHeroWithoutKeepingDeletedPosts() {
+        String schema = "media_upgrade_" + UUID.randomUUID().toString().replace("-", "");
+        var source = new org.springframework.jdbc.datasource.DriverManagerDataSource(
+                BLOG.getJdbcUrl() + (BLOG.getJdbcUrl().contains("?") ? "&" : "?") + "currentSchema=" + schema,
+                BLOG.getUsername(), BLOG.getPassword());
+        Flyway.configure().dataSource(source).schemas(schema).defaultSchema(schema)
+                .locations("classpath:db/blog-migration").target("8").load().migrate();
+        var legacy = new JdbcTemplate(source);
+        UUID author = UUID.randomUUID();
+        UUID active = UUID.randomUUID();
+        UUID deleted = UUID.randomUUID();
+        UUID inline = UUID.randomUUID();
+        UUID hero = UUID.randomUUID();
+        UUID orphan = UUID.randomUUID();
+        legacy.update("INSERT INTO users(id,display_name,email,password_hash) VALUES (?,'Author','media@example.com','hash')", author);
+        for (UUID media : new UUID[]{inline, hero, orphan}) {
+            legacy.update("""
+                    INSERT INTO media(id,uploaded_by,url,mime_type,file_size_bytes,storage_provider,provider_asset_id)
+                    VALUES (?, ?, ?, 'image/png',1,'imagekit',?)
+                    """, media, author, "https://example.com/" + media, media.toString());
+        }
+        legacy.update("""
+                INSERT INTO posts(id,author_id,title,slug,content_html,featured_media_id)
+                VALUES (?,?,'Active','media-active',?,?)
+                """, active, author, "<p>Content</p><img src='https://example.com/" + inline + "?tr=w-800'>", hero);
+        legacy.update("""
+                INSERT INTO posts(id,author_id,title,slug,content_html,deleted_at)
+                VALUES (?,?,'Deleted','media-deleted',?,CURRENT_TIMESTAMP)
+                """, deleted, author, "<img src='https://example.com/" + orphan + "'>");
+        Flyway.configure().dataSource(source).schemas(schema).defaultSchema(schema)
+                .locations("classpath:db/blog-migration").load().migrate();
+        assertEquals(2, legacy.queryForObject("SELECT count(*) FROM post_media WHERE post_id=?", Integer.class, active));
+        assertEquals(0, legacy.queryForObject("SELECT count(*) FROM post_media WHERE post_id=?", Integer.class, deleted));
+        assertNull(legacy.queryForObject("SELECT unused_since FROM media WHERE id=?", java.sql.Timestamp.class, inline));
+        assertNotNull(legacy.queryForObject("SELECT unused_since FROM media WHERE id=?", java.sql.Timestamp.class, orphan));
     }
 
     @Test void publicArticlesValidatePaginationAndLeaveCmsAuthenticated() throws Exception {
@@ -811,7 +1147,8 @@ class BlogAuthControllerTest extends AbstractIntegrationTest {
         assertNotEquals(oldId, newId);
         assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM posts WHERE slug=?", Integer.class, body.get("slug")));
         assertEquals(UUID.fromString(newId), jdbc.queryForObject("SELECT post_id FROM post_slug_routes WHERE slug=?", UUID.class, body.get("slug")));
-        detailArticle(token, oldId).andExpect(status().isNotFound());
+        mvc.perform(get("/api/blog/posts/" + oldId).header("Authorization", "Bearer " + token))
+                .andExpect(status().isNotFound());
         detailArticle(token, newId).andExpect(status().isOk());
         postArticle(token, body).andExpect(status().isConflict());
         grant("EDITOR");

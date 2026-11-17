@@ -15,6 +15,7 @@ import com.ilham.personal_finance_api.blog.dto.BlogPostSummary;
 import com.ilham.personal_finance_api.blog.dto.BlogOffsetPaging;
 import com.ilham.personal_finance_api.blog.dto.PublicBlogPostListResponse;
 import com.ilham.personal_finance_api.blog.dto.PublicBlogPostResponse;
+import com.ilham.personal_finance_api.blog.dto.PublicBlogAuthor;
 import com.ilham.personal_finance_api.blog.dto.PublicBlogPostSummary;
 import com.ilham.personal_finance_api.blog.dto.PublicBlogTerm;
 
@@ -56,9 +57,27 @@ public class BlogStore {
     }
 
     public BlogUserResponse profile(BlogAccount account) {
-        return new BlogUserResponse(account.id(), account.displayName(), account.email(), account.status(),
-                jdbc.queryForList("SELECT r.name FROM roles r JOIN user_roles ur ON ur.role_id = r.id WHERE ur.user_id = ? ORDER BY r.name",
-                        String.class, account.id()));
+        return jdbc.queryForObject("SELECT display_name,email,status,photo_profile,description FROM users WHERE id=?",
+                (rs, row) -> new BlogUserResponse(account.id(), rs.getString("display_name"), rs.getString("email"), rs.getString("status"),
+                        jdbc.queryForList("SELECT r.name FROM roles r JOIN user_roles ur ON ur.role_id=r.id WHERE ur.user_id=? ORDER BY r.name",
+                                String.class, account.id()), rs.getString("photo_profile"), rs.getString("description"),
+                        authorSocialMedia(account.id())), account.id());
+    }
+
+    public BlogUserResponse updateProfile(BlogAccount account,
+            com.ilham.personal_finance_api.blog.dto.UpdateBlogProfileRequest request) {
+        return transactions.execute(tx -> {
+            jdbc.queryForObject("SELECT id FROM users WHERE id=? FOR UPDATE", UUID.class, account.id());
+            if (request.has("displayName")) jdbc.update("UPDATE users SET display_name=? WHERE id=?", request.displayName(), account.id());
+            if (request.has("photoProfile")) jdbc.update("UPDATE users SET photo_profile=? WHERE id=?", request.photoProfile(), account.id());
+            if (request.has("description")) jdbc.update("UPDATE users SET description=? WHERE id=?", request.description(), account.id());
+            if (request.has("socialMedia")) {
+                jdbc.update("DELETE FROM author_social_links WHERE author_id=?", account.id());
+                request.socialMedia().forEach((platform, url) -> jdbc.update(
+                        "INSERT INTO author_social_links(author_id,platform,url) VALUES (?,?,?)", account.id(), platform, url));
+            }
+            return profile(account);
+        });
     }
 
     public void issueSession(UUID userId, String hash, Instant now, Instant expires) {
@@ -147,12 +166,15 @@ public class BlogStore {
             long total = jdbc.queryForObject("SELECT count(*) FROM posts WHERE status='PUBLISHED' "
                     + "AND deleted_at IS NULL AND published_at<=?", Long.class, timestamp);
             var items = jdbc.query("""
-                    SELECT id,title,slug,excerpt,published_at,reading_time_minutes FROM posts
-                    WHERE status='PUBLISHED' AND deleted_at IS NULL AND published_at<=?
-                    ORDER BY published_at DESC,id DESC LIMIT ? OFFSET ?
+                    SELECT p.id,u.display_name AS author_name,p.title,p.slug,p.excerpt,m.url AS hero_image,p.published_at,p.reading_time_minutes
+                    FROM posts p JOIN users u ON u.id=p.author_id
+                    LEFT JOIN media m ON m.id=p.featured_media_id
+                    WHERE p.status='PUBLISHED' AND p.deleted_at IS NULL AND p.published_at<=?
+                    ORDER BY p.published_at DESC,p.id DESC LIMIT ? OFFSET ?
                     """, (rs, row) -> new PublicBlogPostSummary(rs.getObject("id", UUID.class),
-                    rs.getString("title"), rs.getString("slug"), rs.getString("excerpt"),
-                    rs.getTimestamp("published_at").toInstant(), rs.getObject("reading_time_minutes", Integer.class)),
+                    rs.getString("author_name"), rs.getString("title"), rs.getString("slug"), rs.getString("excerpt"), rs.getString("hero_image"),
+                    rs.getTimestamp("published_at").toInstant(), rs.getObject("reading_time_minutes", Integer.class),
+                    publicTerms(BlogTaxonomyKind.CATEGORY, rs.getObject("id", UUID.class))),
                     timestamp, limit, skip);
             return new PublicBlogPostListResponse(items,
                     new BlogOffsetPaging(skip, limit, total, skip < total && items.size() < total - skip));
@@ -164,15 +186,28 @@ public class BlogStore {
         read.setReadOnly(true);
         read.setIsolationLevel(org.springframework.transaction.TransactionDefinition.ISOLATION_REPEATABLE_READ);
         return read.execute(tx -> jdbc.query("""
-                SELECT id,title,slug,excerpt,content_html,published_at,reading_time_minutes,updated_at
-                FROM posts WHERE slug=? AND status='PUBLISHED' AND deleted_at IS NULL AND published_at<=?
+                SELECT p.id,p.title,p.slug,p.excerpt,m.url AS hero_image,p.content_html,p.published_at,p.reading_time_minutes,p.updated_at,
+                       u.id AS author_id,u.display_name AS author_name,u.photo_profile,u.description AS author_description
+                FROM posts p JOIN users u ON u.id=p.author_id
+                LEFT JOIN media m ON m.id=p.featured_media_id
+                WHERE p.slug=? AND p.status='PUBLISHED' AND p.deleted_at IS NULL AND p.published_at<=?
                 """, (rs, row) -> {
                     UUID id = rs.getObject("id", UUID.class);
                     return new PublicBlogPostResponse(id, rs.getString("title"), rs.getString("slug"),
-                            rs.getString("excerpt"), rs.getString("content_html"), rs.getTimestamp("published_at").toInstant(),
+                            rs.getString("excerpt"), rs.getString("hero_image"), rs.getString("content_html"), rs.getTimestamp("published_at").toInstant(),
                             rs.getObject("reading_time_minutes", Integer.class), publicTerms(BlogTaxonomyKind.CATEGORY, id),
-                            publicTerms(BlogTaxonomyKind.TAG, id), rs.getTimestamp("updated_at").toInstant());
+                            publicTerms(BlogTaxonomyKind.TAG, id), rs.getTimestamp("updated_at").toInstant(),
+                            new PublicBlogAuthor(rs.getString("author_name"), rs.getString("photo_profile"),
+                                    rs.getString("author_description"), authorSocialMedia(rs.getObject("author_id", UUID.class))));
                 }, slug, Timestamp.from(now)).stream().findFirst());
+    }
+
+    private java.util.Map<String, String> authorSocialMedia(UUID authorId) {
+        var links = new java.util.LinkedHashMap<String, String>();
+        jdbc.query("SELECT platform,url FROM author_social_links WHERE author_id=? ORDER BY platform",
+                (org.springframework.jdbc.core.RowCallbackHandler) rs ->
+                        links.put(rs.getString("platform"), rs.getString("url")), authorId);
+        return links;
     }
 
     private List<PublicBlogTerm> publicTerms(BlogTaxonomyKind kind, UUID postId) {
@@ -191,13 +226,14 @@ public class BlogStore {
         return read.execute(tx -> {
             long total = jdbc.queryForObject("SELECT count(*) FROM posts WHERE deleted_at IS NULL", Long.class);
             var items = jdbc.query("""
-                    SELECT p.id,p.author_id,p.title,p.slug,p.excerpt,m.url AS hero_image,p.status,
+                    SELECT p.id,u.display_name AS author_name,p.title,p.slug,p.excerpt,m.url AS hero_image,p.status,
                            p.published_at,p.reading_time_minutes,p.created_at,p.updated_at
-                    FROM posts p LEFT JOIN media m ON m.id=p.featured_media_id
+                    FROM posts p JOIN users u ON u.id=p.author_id
+                    LEFT JOIN media m ON m.id=p.featured_media_id
                     WHERE p.deleted_at IS NULL
                     ORDER BY p.created_at DESC,p.id DESC LIMIT ? OFFSET ?
                     """, (rs, row) -> new BlogPostSummary(rs.getObject("id", UUID.class),
-                    rs.getObject("author_id", UUID.class), rs.getString("title"), rs.getString("slug"),
+                    rs.getString("author_name"), rs.getString("title"), rs.getString("slug"),
                     rs.getString("excerpt"), rs.getString("hero_image"), rs.getString("status"),
                     rs.getTimestamp("published_at") == null ? null : rs.getTimestamp("published_at").toInstant(),
                     rs.getObject("reading_time_minutes", Integer.class),
@@ -225,7 +261,7 @@ public class BlogStore {
                     """, (rs, row) -> new BlogPostResponse(id, authorId, request.title(), request.slug(),
                     request.excerpt(), html, request.status(), published, minutes,
                     List.copyOf(request.categoryIds()), List.copyOf(request.tagIds()),
-                    rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant()),
+                    rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant(), request.featuredMediaId()),
                     id, authorId, request.title(), request.slug(), request.excerpt(), html, request.status(),
                     published == null ? null : Timestamp.from(published), minutes, request.featuredMediaId());
             for (UUID category : request.categoryIds()) {
@@ -234,49 +270,52 @@ public class BlogStore {
             for (UUID tag : request.tagIds()) {
                 jdbc.update("INSERT INTO post_tags(post_id,tag_id) VALUES (?,?)", id, tag);
             }
+            new BlogMediaUsage(jdbc).sync(id, html, request.featuredMediaId(), now);
             return result;
         });
     }
 
-    public Optional<BlogPostResponse> post(UUID id) {
+    public Optional<BlogPostResponse> post(String slug) {
         var read = new TransactionTemplate(transactions.getTransactionManager());
         read.setReadOnly(true);
         read.setIsolationLevel(org.springframework.transaction.TransactionDefinition.ISOLATION_REPEATABLE_READ);
-        return read.execute(tx -> jdbc.query("SELECT * FROM posts WHERE id=? AND deleted_at IS NULL",
+        return read.execute(tx -> jdbc.query("SELECT * FROM posts WHERE slug=? AND deleted_at IS NULL",
                 (rs, row) -> new BlogPostResponse(rs.getObject("id", UUID.class),
                         rs.getObject("author_id", UUID.class), rs.getString("title"), rs.getString("slug"),
                         rs.getString("excerpt"), rs.getString("content_html"), rs.getString("status"),
                         rs.getTimestamp("published_at") == null ? null : rs.getTimestamp("published_at").toInstant(),
                         rs.getObject("reading_time_minutes", Integer.class) == null ? 1 : rs.getInt("reading_time_minutes"),
-                        postTermIds("post_categories", "category_id", id), postTermIds("post_tags", "tag_id", id),
-                        rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant()), id)
+                        postTermIds("post_categories", "category_id", rs.getObject("id", UUID.class)), postTermIds("post_tags", "tag_id", rs.getObject("id", UUID.class)),
+                        rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant(), rs.getObject("featured_media_id", UUID.class)), slug)
                 .stream().findFirst());
     }
 
-    public void softDeletePost(UUID id, Instant now, java.util.function.BiConsumer<UUID, String> authorize) {
+    public void softDeletePost(String slug, Instant now, java.util.function.BiConsumer<UUID, String> authorize) {
         transactions.executeWithoutResult(tx -> {
-            record Target(UUID authorId, String status) {}
-            var target = jdbc.query("SELECT author_id,status FROM posts WHERE id=? AND deleted_at IS NULL FOR UPDATE",
-                    (rs, row) -> new Target(rs.getObject("author_id", UUID.class), rs.getString("status")), id)
+            record Target(UUID id, UUID authorId, String status) {}
+            var target = jdbc.query("SELECT id,author_id,status FROM posts WHERE slug=? AND deleted_at IS NULL FOR UPDATE",
+                    (rs, row) -> new Target(rs.getObject("id", UUID.class), rs.getObject("author_id", UUID.class), rs.getString("status")), slug)
                     .stream().findFirst().orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(
                             org.springframework.http.HttpStatus.NOT_FOUND, "Blog post not found"));
             authorize.accept(target.authorId(), target.status());
-            jdbc.update("UPDATE posts SET deleted_at=?,scheduled_at=NULL WHERE id=?", Timestamp.from(now), id);
+            jdbc.update("UPDATE posts SET deleted_at=?,scheduled_at=NULL WHERE id=?", Timestamp.from(now), target.id());
+            new BlogMediaUsage(jdbc).sync(target.id(), "", null, now);
         });
     }
 
-    public BlogPostResponse updatePost(UUID id, java.util.function.Function<BlogPostResponse, BlogPostResponse> patch) {
+    public BlogPostResponse updatePost(String slug, Instant now, java.util.function.Function<BlogPostResponse, BlogPostResponse> patch) {
         return transactions.execute(tx -> {
-            var current = jdbc.query("SELECT * FROM posts WHERE id=? AND deleted_at IS NULL FOR UPDATE",
+            var current = jdbc.query("SELECT * FROM posts WHERE slug=? AND deleted_at IS NULL FOR UPDATE",
                     (rs, row) -> new BlogPostResponse(rs.getObject("id", UUID.class),
                             rs.getObject("author_id", UUID.class), rs.getString("title"), rs.getString("slug"),
                             rs.getString("excerpt"), rs.getString("content_html"), rs.getString("status"),
                             rs.getTimestamp("published_at") == null ? null : rs.getTimestamp("published_at").toInstant(),
                             rs.getObject("reading_time_minutes", Integer.class) == null ? 1 : rs.getInt("reading_time_minutes"),
-                            postTermIds("post_categories", "category_id", id), postTermIds("post_tags", "tag_id", id),
-                            rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant()), id)
+                            postTermIds("post_categories", "category_id", rs.getObject("id", UUID.class)), postTermIds("post_tags", "tag_id", rs.getObject("id", UUID.class)),
+                            rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant(), rs.getObject("featured_media_id", UUID.class)), slug)
                     .stream().findFirst().orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(
                             org.springframework.http.HttpStatus.NOT_FOUND, "Blog post not found"));
+            UUID id = current.id();
             var updated = patch.apply(current);
             boolean categoriesChanged = !new java.util.HashSet<>(current.categoryIds()).equals(new java.util.HashSet<>(updated.categoryIds()));
             boolean tagsChanged = !new java.util.HashSet<>(current.tagIds()).equals(new java.util.HashSet<>(updated.tagIds()));
@@ -284,12 +323,12 @@ public class BlogStore {
             if (tagsChanged) for (UUID term : updated.tagIds().stream().sorted().toList()) requireTerm("tags", term);
             var times = jdbc.queryForObject("""
                     UPDATE posts SET title=?,slug=?,excerpt=?,content_html=?,status=?,published_at=?,reading_time_minutes=?,
-                    scheduled_at=CASE WHEN ?='DRAFT' THEN scheduled_at ELSE NULL END
+                    featured_media_id=?,scheduled_at=CASE WHEN ?='DRAFT' THEN scheduled_at ELSE NULL END
                     WHERE id=? RETURNING updated_at
                     """, (rs, row) -> rs.getTimestamp("updated_at").toInstant(), updated.title(), updated.slug(),
                     updated.excerpt(), updated.contentHtml(), updated.status(),
                     updated.publishedAt() == null ? null : Timestamp.from(updated.publishedAt()),
-                    updated.readingTimeMinutes(), updated.status(), id);
+                    updated.readingTimeMinutes(), updated.featuredMediaId(), updated.status(), id);
             if (categoriesChanged) {
                 jdbc.update("DELETE FROM post_categories WHERE post_id=?", id);
                 for (UUID term : updated.categoryIds()) jdbc.update("INSERT INTO post_categories(post_id,category_id) VALUES (?,?)", id, term);
@@ -298,9 +337,10 @@ public class BlogStore {
                 jdbc.update("DELETE FROM post_tags WHERE post_id=?", id);
                 for (UUID term : updated.tagIds()) jdbc.update("INSERT INTO post_tags(post_id,tag_id) VALUES (?,?)", id, term);
             }
+            new BlogMediaUsage(jdbc).sync(id, updated.contentHtml(), updated.featuredMediaId(), now);
             return new BlogPostResponse(id, updated.authorId(), updated.title(), updated.slug(), updated.excerpt(),
                     updated.contentHtml(), updated.status(), updated.publishedAt(), updated.readingTimeMinutes(),
-                    updated.categoryIds(), updated.tagIds(), current.createdAt(), times);
+                    updated.categoryIds(), updated.tagIds(), current.createdAt(), times, updated.featuredMediaId());
         });
     }
 

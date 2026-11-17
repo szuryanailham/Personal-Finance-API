@@ -24,8 +24,9 @@ Status default DRAFT jika tidak dikirim atau null. Penulis selalu pengguna CMS
 pada sesi; klien tidak memilih authorId. Waktu publikasi PUBLISHED diisi server.
 `featuredMediaId` opsional: isi UUID gambar yang sudah ada di tabel `media`, atau
 null jika tanpa gambar utama. ID yang tidak ada menghasilkan HTTP 400.
-URL gambar tersebut tampil sebagai `heroImage` pada list CMS. Endpoint upload
-media belum tersedia. Scheduling dan SEO belum menjadi bagian endpoint ini.
+URL gambar tersebut tampil sebagai `heroImage` pada list CMS. Upload gambar tersedia
+melalui `POST /api/blog/media` (lihat bagian upload media). Scheduling dan SEO belum
+menjadi bagian endpoint ini.
 
 Title wajib, maksimal 250 karakter; slug wajib lowercase ASCII dengan pemisah
 hyphen, maksimal 200 karakter. Excerpt opsional maksimal 10.000 karakter.
@@ -60,7 +61,7 @@ GRANT SELECT, UPDATE ON categories, tags TO artoku_blog_app;
 GRANT SELECT, INSERT, DELETE ON post_slug_routes TO artoku_blog_app;
 ```
 
-Jalankan seluruh migration blog hingga V7; V7 mengizinkan pemakaian ulang slug setelah soft delete.
+Jalankan seluruh migration blog hingga V9; V7 mengizinkan pemakaian ulang slug setelah soft delete.
 
 ## List artikel CMS
 
@@ -89,9 +90,10 @@ Respons HTTP 200, Cache-Control no-store:
 }
 ```
 
-Setiap item berisi id, authorId, title, slug, excerpt, heroImage, status, publishedAt,
+Setiap item berisi id, authorName, title, slug, excerpt, heroImage, status, publishedAt,
 readingTimeMinutes, createdAt, dan updatedAt. Konten HTML serta relasi kategori/tag
 tidak dimuat pada list. Total dan halaman dibaca pada snapshot database yang sama.
+Field `authorName` berisi nama penulis dari `users.display_name`, menggantikan `authorId` pada list.
 Field `heroImage` berisi URL dari `media.url` melalui `posts.featured_media_id`,
 atau `null` jika artikel belum memiliki gambar utama. Contoh: `"heroImage": "https://example.com/blog/hero.jpg"`.
 Role database runtime memerlukan `SELECT ON media` untuk membaca gambar utama:
@@ -104,7 +106,7 @@ Search, filter tanggal, sort custom, dan endpoint detail belum ditambahkan pada 
 
 ## Update parsial artikel CMS
 
-`PATCH /api/blog/posts/{id}` dengan Bearer token CMS dan Content-Type application/json.
+`PATCH /api/blog/posts/{slug}` dengan Bearer token CMS dan Content-Type application/json.
 Tidak ada endpoint PUT. Body wajib berisi minimal satu field yang didukung.
 
 ```json
@@ -117,9 +119,9 @@ Tidak ada endpoint PUT. Body wajib berisi minimal satu field yang didukung.
 }
 ```
 
-Field yang didukung: title, slug, excerpt, contentHtml, categoryIds, tagIds, status.
+Field yang didukung: title, slug, excerpt, contentHtml, categoryIds, tagIds, status, featuredMediaId.
 Field yang tidak dikirim dipertahankan. `excerpt: null` mengosongkan excerpt;
-field lainnya tidak menerima null. categoryIds minimal satu ID; tagIds boleh []
+`featuredMediaId: null` melepas gambar utama. Field lainnya tidak menerima null. categoryIds minimal satu ID; tagIds boleh []
 untuk menghapus semua tag. Array mengganti seluruh pilihan taxonomy, bukan menambah
 satu per satu. ID harus ada dan unik. Batas panjang dan sanitasi HTML sama dengan create.
 
@@ -149,8 +151,8 @@ GRANT SELECT, INSERT, DELETE ON post_categories, post_tags TO artoku_blog_app;
 
 ## Detail artikel CMS
 
-`GET /api/blog/posts/{id}` dengan header `Authorization: Bearer <token CMS>`.
-Gunakan ID dari respons create atau daftar post untuk mengambil data sebelum PATCH.
+`GET /api/blog/posts/{slug}` dengan header `Authorization: Bearer <token CMS>`.
+Gunakan slug dari respons create atau daftar post untuk mengambil data sebelum PATCH.
 AUTHOR dapat melihat artikel miliknya sendiri dalam status DRAFT, PUBLISHED, dan
 ARCHIVED. ADMIN/EDITOR dapat melihat seluruh artikel yang belum dihapus.
 
@@ -159,14 +161,14 @@ lengkap: id, authorId, title, slug, excerpt, contentHtml, status, publishedAt,
 readingTimeMinutes, categoryIds, tagIds, createdAt, updatedAt. Message:
 `Blog post retrieved successfully`.
 
-Error: 400 format UUID tidak valid, 401 token tidak valid/tidak dikirim,
-403 role tidak sesuai atau artikel milik author lain, 404 ID tidak ditemukan atau
+Error: 401 token tidak valid/tidak dikirim,
+403 role tidak sesuai atau artikel milik author lain, 404 slug tidak ditemukan atau
 artikel sudah dihapus. Endpoint ini memerlukan autentikasi CMS.
 
 Contoh pengujian manual:
 
 ```bash
-curl '{{baseUrl}}/api/blog/posts/{{postId}}' \
+curl '{{baseUrl}}/api/blog/posts/{{postSlug}}' \
   -H 'Authorization: Bearer <token CMS>'
 ```
 
@@ -174,7 +176,7 @@ Request `Detail Post CMS` juga tersedia di koleksi Postman blog CMS.
 
 ## Mengatasi 404 saat tes manual
 
-`GET /api/blog/posts` adalah daftar; `GET /api/blog/posts/{id}` adalah detail.
+`GET /api/blog/posts` adalah daftar; `GET /api/blog/posts/{slug}` adalah detail.
 Keduanya memerlukan Bearer token CMS. Daftar kosong tetap menghasilkan HTTP 200.
 Jika URL daftar menghasilkan 404, pastikan versi aplikasi terbaru berjalan dan
 modul blog aktif. Untuk membaca `BLOG_ENABLED=true` dari `.env`, restart dengan:
@@ -189,7 +191,7 @@ endpoint blog yang aktif menghasilkan 401, bukan 404.
 
 ## Soft delete artikel CMS
 
-`DELETE /api/blog/posts/{id}` dengan `Authorization: Bearer <token CMS>`, tanpa body.
+`DELETE /api/blog/posts/{slug}` dengan `Authorization: Bearer <token CMS>`, tanpa body.
 AUTHOR hanya dapat menghapus DRAFT miliknya. ADMIN/EDITOR dapat menghapus artikel
 DRAFT, PUBLISHED, maupun ARCHIVED. Pemeriksaan kepemilikan/status dan perubahan
 berada dalam satu transaksi dengan row lock untuk mencegah balapan dengan PATCH.
@@ -205,7 +207,7 @@ Error: 400 UUID tidak valid, 401 token tidak valid/tidak dikirim, 403 tidak berh
 404 artikel tidak ditemukan atau sudah dihapus.
 
 ```bash
-curl -X DELETE 'http://localhost:8080/api/blog/posts/<postId>' \
+curl -X DELETE 'http://localhost:8080/api/blog/posts/cara-mencatat-pengeluaran-harian' \
   -H 'Authorization: Bearer <token CMS>'
 ```
 
@@ -224,9 +226,9 @@ Dua endpoint baca tanpa token CMS:
 List memakai `skip >= 0`, `limit` 1–100 (default 20), urutan publishedAt DESC lalu
 id DESC. Respons `{ "data": [...], "paging": { "skip": 0, "limit": 20,
 "totalItem": 0, "hasMore": false } }`. Daftar kosong tetap 200. Ringkasan berisi
-id, title, slug, excerpt, publishedAt, readingTimeMinutes, tanpa contentHtml.
+id, authorName, title, slug, excerpt, heroImage, publishedAt, readingTimeMinutes, categories, tanpa contentHtml.
 
-Detail memakai envelope WebResponse dengan `data` berisi id, title, slug, excerpt,
+Detail memakai envelope WebResponse dengan `data` berisi id, title, slug, excerpt, heroImage,
 contentHtml, publishedAt, readingTimeMinutes, categories, tags, updatedAt. Setiap
 kategori/tag berisi id, name, slug. Field CMS seperti authorId/status tidak diekspos.
 Gunakan slug aktif dari list; slug lama setelah rename menghasilkan 404.
@@ -291,3 +293,232 @@ GRANT SELECT, INSERT, DELETE ON post_slug_routes TO artoku_blog_app;
 
 Jika kelak fitur restore ditambahkan, slug yang sudah dipakai post lain harus
 diganti sebelum restore. Endpoint restore belum tersedia.
+
+
+## Upload media blog
+
+`POST /api/blog/media` menggunakan multipart/form-data dan Bearer token CMS dengan
+role AUTHOR, EDITOR, atau ADMIN. Server memerlukan `IMAGEKIT_PRIVATE_KEY`.
+
+- `file` wajib: JPG, PNG, WebP, atau GIF, maksimal 5 MB; isi gambar juga divalidasi.
+- `type` opsional dan case-sensitive: `HERO` masuk ke `/blog/hero`, `CONTENT`
+  masuk ke `/blog/content`. Tanpa field `type`, server memakai `HERO`.
+- Nilai lain, termasuk string kosong, menghasilkan HTTP 400 sebelum upload ImageKit.
+  Folder ditentukan server; klien tidak memilih path folder.
+
+```bash
+curl -X POST 'http://localhost:8080/api/blog/media' \
+  -H 'Authorization: Bearer <token CMS>' \
+  -F 'file=@hero.jpg' -F 'type=HERO'
+
+curl -X POST 'http://localhost:8080/api/blog/media' \
+  -H 'Authorization: Bearer <token CMS>' \
+  -F 'file=@content.png' -F 'type=CONTENT'
+
+# Kompatibilitas frontend lama: masuk ke /blog/hero
+curl -X POST 'http://localhost:8080/api/blog/media' \
+  -H 'Authorization: Bearer <token CMS>' \
+  -F 'file=@hero.jpg'
+```
+
+Respons HTTP 201 dengan `Cache-Control: no-store`, struktur tetap:
+
+```json
+{
+  "data": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "url": "https://ik.imagekit.io/example/blog/hero/image.jpg"
+  },
+  "message": "Gambar berhasil diunggah ke ImageKit"
+}
+```
+
+Kedua jenis upload menyimpan referensi pada tabel `media` di database blog:
+id, uploaded_by, url, mime_type, file_size_bytes, storage_provider, dan
+provider_asset_id. Gunakan `data.id` untuk `featuredMediaId` dan `data.url`
+untuk gambar di konten artikel. Role runtime memerlukan hak berikut:
+
+```sql
+GRANT SELECT, INSERT, UPDATE ON media TO artoku_blog_app;
+GRANT SELECT, INSERT, DELETE ON post_media TO artoku_blog_app;
+```
+
+Error: 400 type/file tidak valid; 401 sesi tidak valid; 403 role tidak sesuai;
+413 jika batas multipart server terlampaui; 503 konfigurasi ImageKit belum tersedia;
+502 upload atau respons ImageKit gagal.
+
+Detail, edit, dan delete menggunakan slug aktif artikel pada URL, misalnya `/api/blog/posts/cara-mencatat-pengeluaran-harian`. Jika PATCH mengubah slug, gunakan slug baru untuk detail/edit/delete berikutnya; slug lama menghasilkan 404.
+
+Respons daftar dan detail blog publik menyertakan `heroImage` berupa URL dari media yang dipilih melalui `featuredMediaId`. Nilainya `null` jika artikel belum memiliki gambar utama.
+
+Daftar publik `GET /api/blog/published` menyertakan `authorName` (nama tampilan penulis) dan `categories` (array objek `id`, `name`, `slug`; array kosong jika tanpa kategori).
+
+## Profil penulis pada detail publik
+
+`GET /api/blog/published/{slug}` menyertakan objek `data.author`:
+
+```json
+{
+  "name": "Nama Penulis",
+  "photoProfile": "https://example.com/avatar.jpg",
+  "description": "Penulis tentang keuangan pribadi.",
+  "socialMedia": {
+    "instagram": "https://instagram.com/author",
+    "linkedin": "https://linkedin.com/in/author"
+  }
+}
+```
+
+Migration blog V8 menambahkan `users.photo_profile`, `users.description`,
+dan tabel `author_social_links(author_id, platform, url)`. Nama berasal dari
+`users.display_name`. Profil yang belum diisi mengembalikan foto/deskripsi
+`null` dan `socialMedia: {}`. Email dan data autentikasi tidak disertakan.
+Migration dijalankan saat aplikasi dimulai jika `app.blog.flyway.enabled=true`.
+Jika migration dijalankan manual, terapkan V8 sebelum memakai versi aplikasi ini.
+Role runtime memerlukan SELECT pada `author_social_links`.
+
+Endpoint pengisian profil belum tersedia; data dapat diisi melalui database blog:
+
+```sql
+UPDATE users SET photo_profile = 'https://example.com/avatar.jpg',
+    description = 'Penulis tentang keuangan pribadi.'
+WHERE id = '<author_id>'::uuid;
+
+INSERT INTO author_social_links(author_id, platform, url)
+VALUES ('<author_id>'::uuid, 'instagram', 'https://instagram.com/author')
+ON CONFLICT (author_id, platform) DO UPDATE SET url = EXCLUDED.url;
+```
+
+## Lifecycle media ImageKit dan cleanup
+
+Upload `POST /api/blog/media` menyimpan UUID media pada `media.id`, fileId ImageKit
+pada `provider_asset_id`, URL pada `url`, dan waktu upload pada `created_at`.
+Respons upload tetap `data.id` dan `data.url`.
+
+Saat POST/PATCH artikel, backend membaca `img[src]` dari HTML yang sudah
+disanitasi dan menggabungkannya dengan `featuredMediaId`. URL yang cocok dengan
+media terdaftar dicatat pada `post_media`. Transformasi melalui query URL
+(misalnya `?tr=w-800`) tetap mengacu ke URL asli upload. Gunakan URL upload asli
+atau transformasi melalui query; perubahan path URL ImageKit tidak dipetakan.
+Gambar eksternal yang tidak terdaftar di database tidak dikelola oleh cleanup.
+
+Relasi dan isi artikel disimpan dalam transaksi yang sama. Gambar yang dilepas
+dari HTML tetap digunakan jika masih menjadi gambar utama atau dipakai artikel
+lain. Soft delete artikel melepas seluruh relasi medianya. DRAFT, PUBLISHED,
+dan ARCHIVED yang belum dihapus semuanya mempertahankan gambar. Foto profil
+penulis dengan URL media yang sama juga dilindungi dari cleanup.
+
+Mengganti gambar utama:
+```http
+PATCH /api/blog/posts/{slug}
+Authorization: Bearer <token CMS>
+Content-Type: application/json
+
+{"featuredMediaId":"11111111-1111-4111-8111-111111111111"}
+```
+
+Melepas gambar utama:
+```json
+{"featuredMediaId":null}
+```
+
+Jika `featuredMediaId` tidak dikirim pada PATCH, pilihan sebelumnya dipertahankan.
+Respons CMS create/detail/edit menyertakan `featuredMediaId`. Referensi ke media
+berstatus DELETED ditolak dengan 400.
+
+Job berjalan setiap satu jam, mulai satu menit setelah aplikasi aktif, maksimum
+50 media per batch. Hanya media provider `imagekit` dengan fileId, tanpa pemakaian,
+dan sudah tidak digunakan selama 24 jam yang diproses. Untuk upload baru,
+masa tunggu dimulai saat upload; ketika media terakhir dilepas, dihitung ulang
+dari waktu pelepasan tersebut.
+
+Job memanggil `DELETE https://api.imagekit.io/v1/files/{fileId}` dengan private
+key server. HTTP sukses atau 404 menandai baris sebagai `DELETED`, mengisi
+`deleted_at`, dan mempertahankan metadata untuk audit. Kegagalan jaringan atau
+HTTP lainnya menyimpan `last_cleanup_error`, menambah `cleanup_attempts`,
+dan menjadwalkan ulang melalui `next_cleanup_at` setelah satu jam.
+Retry tetap tersedia setelah restart; tidak ada batas jumlah percobaan.
+Jika proses berhenti setelah file terhapus tetapi sebelum commit database,
+percobaan berikutnya menerima 404 dan menyelesaikan status database.
+
+Save artikel dan cleanup mengunci baris media yang sama. Job memakai
+`SKIP LOCKED`, memeriksa ulang pemakaian setelah memperoleh lock, dan menahan
+lock selama request penghapusan (connect timeout 5 detik, read timeout 15 detik).
+Beberapa instance aplikasi dapat menjalankan job tanpa memproses media yang sama
+bersamaan. Media yang sudah dihapus tidak dapat dipasang kembali ke artikel.
+
+Konfigurasi:
+```dotenv
+IMAGEKIT_PRIVATE_KEY=<private key server>
+BLOG_MEDIA_CLEANUP_ENABLED=true
+BLOG_MEDIA_CLEANUP_GRACE_PERIOD=24h
+BLOG_MEDIA_CLEANUP_RETRY_DELAY=1h
+BLOG_MEDIA_CLEANUP_INTERVAL=1h
+BLOG_MEDIA_CLEANUP_INITIAL_DELAY=1m
+BLOG_MEDIA_CLEANUP_BATCH_SIZE=50
+```
+
+Tanpa private key, job tidak memanggil ImageKit. Set `BLOG_MEDIA_CLEANUP_ENABLED=false`
+untuk menonaktifkan job. Grace period tidak boleh negatif; retry harus positif;
+batch size 1–1000.
+
+Terapkan migration blog V9 sebelum menjalankan aplikasi ini. Migration mengisi
+relasi artikel lama secara konservatif berdasarkan URL pada HTML dan gambar utama,
+serta memberikan masa tunggu baru untuk media lama yang belum terpakai.
+Jika Flyway aplikasi diaktifkan, migration dijalankan saat startup.
+Role runtime memerlukan:
+```sql
+GRANT SELECT, INSERT, UPDATE ON media TO artoku_blog_app;
+GRANT SELECT, INSERT, DELETE ON post_media TO artoku_blog_app;
+```
+
+Pemantauan percobaan gagal:
+```sql
+SELECT id, provider_asset_id, unused_since, cleanup_attempts,
+       next_cleanup_at, last_cleanup_error
+FROM media
+WHERE lifecycle_status='ACTIVE' AND last_cleanup_error IS NOT NULL
+ORDER BY next_cleanup_at;
+```
+
+Dokumentasi API provider: [ImageKit Delete File](https://imagekit.io/docs/api-reference/digital-asset-management-dam/managing-assets/delete-file).
+
+## Edit profil admin / pengguna CMS
+
+`PATCH /api/blog/auth/me` memerlukan `Authorization: Bearer <token CMS>` dan
+`Content-Type: application/json`. Mengubah profil akun pemilik sesi (ADMIN,
+EDITOR, maupun AUTHOR); role, email, dan password tidak diubah endpoint ini.
+
+```json
+{
+  "displayName": "Admin Artoku",
+  "photoProfile": "https://example.com/avatar.png",
+  "description": "Penulis artikel keuangan pribadi.",
+  "socialMedia": {
+    "instagram": "https://instagram.com/artoku",
+    "website": "https://www.myartoku.com"
+  }
+}
+```
+
+Kirim minimal satu field. Field yang tidak dikirim tetap tersimpan.
+`displayName` tidak boleh null/kosong dan maksimal 150 karakter; spasi tepi dipangkas.
+`photoProfile` berupa URL HTTPS maksimal 2048 karakter, atau null untuk menghapus.
+`description` maksimal 5.000 karakter, atau null untuk menghapus.
+`socialMedia` merupakan object maksimal 20 tautan dan mengganti seluruh tautan
+sebelumnya; `{}` menghapus semua tautan. Nama platform maksimal 50 karakter,
+huruf kecil, angka, underscore atau hyphen. URL harus HTTPS maksimal 2048 karakter.
+
+Sukses HTTP 200 dengan `Cache-Control: no-store` dan `data` berisi `id`,
+`displayName`, `email`, `status`, `roles`, `photoProfile`, `description`,
+`socialMedia`. Field profil tambahan juga tersedia di `GET /api/blog/auth/me`
+dan profil pada respons login. Perubahan nama/foto/deskripsi/tautan otomatis
+digunakan pada author detail artikel publik. Error: 400 input tidak valid;
+401 sesi tidak valid, kedaluwarsa, atau akun tidak aktif.
+
+Hak tambahan untuk role database runtime setelah migration V8:
+
+```sql
+GRANT UPDATE (display_name, photo_profile, description) ON users TO artoku_blog_app;
+GRANT SELECT, INSERT, DELETE ON author_social_links TO artoku_blog_app;
+```

@@ -24,6 +24,14 @@ public class UpdateBlogPostRequest {
     @Size(max = 100)
     private List<@NotNull UUID> tagIds;
 
+    private UUID featuredMediaId;
+
+    public UUID featuredMediaId() { return featuredMediaId; }
+    public void setFeaturedMediaId(UUID value) {
+        supplied.add("featuredMediaId");
+        featuredMediaId = value;
+    }
+
     public boolean has(String name) { return supplied.contains(name); }
     public boolean empty() { return supplied.isEmpty(); }
 

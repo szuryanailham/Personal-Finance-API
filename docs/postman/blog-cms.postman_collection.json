@@ -45,6 +45,10 @@
     {
       "key": "articleSlug",
       "value": ""
+    },
+    {
+      "key": "postSlug",
+      "value": "cara-mengatur-keuangan-bulanan"
     }
   ],
   "item": [
@@ -304,7 +308,7 @@
             "value": "application/json"
           }
         ],
-        "url": "{{baseUrl}}/api/blog/posts/{{postId}}",
+        "url": "{{baseUrl}}/api/blog/posts/{{postSlug}}",
         "body": {
           "mode": "raw",
           "raw": "{\n  \"title\": \"Judul artikel diperbarui\",\n  \"tagIds\": []\n}",
@@ -321,7 +325,7 @@
       "request": {
         "method": "GET",
         "header": [],
-        "url": "{{baseUrl}}/api/blog/posts/{{postId}}",
+        "url": "{{baseUrl}}/api/blog/posts/{{postSlug}}",
         "description": "Detail lengkap sebelum PATCH. AUTHOR: artikel milik sendiri; ADMIN/EDITOR: semua artikel aktif. Memerlukan token CMS."
       }
     },
@@ -330,7 +334,7 @@
       "request": {
         "method": "DELETE",
         "header": [],
-        "url": "{{baseUrl}}/api/blog/posts/{{postId}}",
+        "url": "{{baseUrl}}/api/blog/posts/{{postSlug}}",
         "description": "Tanpa body. AUTHOR hanya draft miliknya; ADMIN/EDITOR semua status. Soft delete mempertahankan konten dan relasi; reservasi slug dilepas agar dapat dipakai ulang. Memerlukan token CMS."
       }
     },

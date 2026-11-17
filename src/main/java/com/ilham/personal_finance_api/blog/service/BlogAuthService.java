@@ -74,6 +74,13 @@ public class BlogAuthService {
         return store.profile(store.session(hash(bearer(authorization)), clock.instant()).orElseThrow(BlogAuthService::unauthorized));
     }
 
+    public BlogUserResponse updateProfile(String authorization,
+            com.ilham.personal_finance_api.blog.dto.UpdateBlogProfileRequest request) {
+        var account = store.session(hash(bearer(authorization)), clock.instant()).orElseThrow(BlogAuthService::unauthorized);
+        if (request.empty()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "At least one profile field is required");
+        return store.updateProfile(account, request);
+    }
+
     public void logout(String authorization) {
         String token = bearer(authorization);
         me(authorization);

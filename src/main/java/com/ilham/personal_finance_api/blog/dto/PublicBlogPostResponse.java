@@ -4,4 +4,4 @@ import java.util.UUID;
 import java.time.Instant;
 import java.util.List;
 
-public record PublicBlogPostResponse(UUID id, String title, String slug, String excerpt, String contentHtml, Instant publishedAt, Integer readingTimeMinutes, List<PublicBlogTerm> categories, List<PublicBlogTerm> tags, Instant updatedAt) {}
+public record PublicBlogPostResponse(UUID id, String title, String slug, String excerpt, String heroImage, String contentHtml, Instant publishedAt, Integer readingTimeMinutes, List<PublicBlogTerm> categories, List<PublicBlogTerm> tags, Instant updatedAt, PublicBlogAuthor author) {}
