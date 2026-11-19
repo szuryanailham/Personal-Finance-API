@@ -332,14 +332,21 @@ Required
 {
   "data": {
     "id": "d290f1ee-6c54-4b01-90e6-d701748f0851",
-    "name": "Food",
-    "type": "EXPENSE"
+    "name": "Makan dan Minum",
+    "type": "EXPENSE",
+    "budget": 1500000,
+    "totalExpense": 400000,
+    "remainingBudget": 1100000,
+    "icon": "utensils",
+    "color": "#F97316"
   },
   "message": null,
   "errors": null,
   "paging": null
 }
 ```
+
+For `EXPENSE` categories, `totalExpense` sums all active transactions in the category, with no date filter. It is 0 when there are no active transactions. When `budget` is positive, `remainingBudget` equals `budget - totalExpense` and can be negative. An unset budget omits `remainingBudget`.
 
 **Error Response**
 
@@ -396,8 +403,13 @@ GET /api/categories?skip=0&limit=10
   "data": [
     {
       "id": "d290f1ee-6c54-4b01-90e6-d701748f0851",
-      "name": "Food",
-      "type": "EXPENSE"
+      "name": "Makan dan Minum",
+      "type": "EXPENSE",
+      "budget": 1500000,
+      "totalExpense": 400000,
+      "remainingBudget": 1100000,
+      "icon": "utensils",
+      "color": "#F97316"
     }
   ],
   "message": null,
@@ -409,6 +421,8 @@ GET /api/categories?skip=0&limit=10
   }
 }
 ```
+
+For `EXPENSE` categories, `totalExpense` sums all active transactions in the category, with no date filter. It is 0 when there are no active transactions. When `budget` is positive, `remainingBudget` equals `budget - totalExpense` and can be negative. An unset budget omits `remainingBudget`.
 
 **Error Response**
 
@@ -429,7 +443,7 @@ or `"Limit must be greater than 0"` when `limit <= 0`.
 
 ### Update Category
 
-Full replace of a category (all fields required, despite the `PUT` semantics being effectively the only update mode — there is no partial-update endpoint for categories).
+Updates a category. Send `name` and `type` on every request. Omitted or null metadata keeps its current value, and changing the type to `INCOME` or `SAVING` clears the budget.
 
 **Endpoint**
 
@@ -453,15 +467,21 @@ Required
 
 ```json
 {
-  "name": "Groceries",
-  "type": "EXPENSE"
+  "name": "Makan dan Minum",
+  "type": "EXPENSE",
+  "budget": 1500000,
+  "icon": "utensils",
+  "color": "#F97316"
 }
 ```
 
 | Field  | Type   | Validation                          |
 | ------ | ------ | ------------------------------------ |
 | `name` | String | Required, max 100 chars              |
-| `type` | String | Required, one of `EXPENSE`, `INCOME` |
+| `type` | String | Required, one of `EXPENSE`, `INCOME`, `SAVING` |
+| `budget` | Integer (64-bit) | Optional, only for `EXPENSE`. In rupiah, from 0 to 1,000,000,000,000. Use 0 for an unset budget. |
+| `icon` | String | Optional, a supported category icon ID such as `utensils`, `car`, or `wallet`. |
+| `color` | String | Optional, a six-digit hex color in `#RRGGBB` format. |
 
 **Success Response**
 
@@ -471,8 +491,11 @@ Required
 {
   "data": {
     "id": "d290f1ee-6c54-4b01-90e6-d701748f0851",
-    "name": "Groceries",
-    "type": "EXPENSE"
+    "name": "Makan dan Minum",
+    "type": "EXPENSE",
+    "budget": 1500000,
+    "icon": "utensils",
+    "color": "#F97316"
   },
   "message": null,
   "errors": null,

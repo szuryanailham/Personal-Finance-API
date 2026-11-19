@@ -1,7 +1,10 @@
 package com.ilham.personal_finance_api.controller;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -19,6 +22,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.ilham.personal_finance_api.entity.Category;
+import com.ilham.personal_finance_api.entity.Transaction;
 import com.ilham.personal_finance_api.entity.User;
 import com.ilham.personal_finance_api.dto.CategoryResponse;
 import com.ilham.personal_finance_api.dto.CreateCategoryRequest;
@@ -151,6 +155,106 @@ void testCreateCategorySuccess() throws Exception {
 
 }
 
+
+@Test
+void testCreateExpenseCategoryPersistsBudgetAndAppearance() throws Exception {
+    String payload = """
+        {"name":"Makan dan Minum","type":"EXPENSE","budget":1000000000000,"icon":"utensils","color":"#F97316"}
+        """;
+
+    mockMvc.perform(post("/api/categories")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(payload)
+            .header("Authorization", "Bearer test"))
+        .andExpect(status().isOk())
+        .andDo(result -> {
+            WebResponse<CreateCategoryResponse> response = objectMapper.readValue(
+                result.getResponse().getContentAsString(), new TypeReference<>() {});
+            assertEquals(1_000_000_000_000L, response.getData().getBudget());
+            assertEquals("utensils", response.getData().getIcon());
+            assertEquals("#F97316", response.getData().getColor());
+        });
+
+    mockMvc.perform(get("/api/categories").param("skip", "0").param("limit", "10")
+            .header("Authorization", "Bearer test"))
+        .andExpect(status().isOk())
+        .andDo(result -> {
+            WebResponse<List<CategoryResponse>> response = objectMapper.readValue(
+                result.getResponse().getContentAsString(), new TypeReference<>() {});
+            CategoryResponse category = response.getData().getFirst();
+            assertEquals(1_000_000_000_000L, category.getBudget());
+            assertEquals(BigDecimal.ZERO, category.getTotalExpense());
+            assertEquals(BigDecimal.valueOf(1_000_000_000_000L), category.getRemainingBudget());
+            assertEquals("utensils", category.getIcon());
+            assertEquals("#F97316", category.getColor());
+        });
+}
+
+@Test
+void testCreateCategoryRejectsInvalidMetadata() throws Exception {
+    for (String payload : java.util.List.of(
+            "{\"name\":\"test\",\"type\":\"EXPENSE\"}",
+            "{\"name\":\"test\",\"type\":\"EXPENSE\",\"budget\":1.5}",
+            "{\"name\":\"test\",\"type\":\"EXPENSE\",\"budget\":-1}",
+            "{\"name\":\"test\",\"type\":\"EXPENSE\",\"budget\":1000000000001}",
+            "{\"name\":\"test\",\"type\":\"INCOME\",\"budget\":0}",
+            "{\"name\":\"test\",\"type\":\"SAVING\",\"icon\":\"unknown\"}",
+            "{\"name\":\"test\",\"type\":\"INCOME\",\"color\":\"#abc\"}")) {
+        mockMvc.perform(post("/api/categories")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(payload)
+                .header("Authorization", "Bearer test"))
+            .andExpect(status().isBadRequest());
+    }
+}
+
+@Test
+void testUpdateCategoryPersistsMetadataForDetailAndList() throws Exception {
+    Category category = new Category();
+    category.setName("Food");
+    category.setType("EXPENSE");
+    category.setUser(user);
+    categoryRepository.save(category);
+    String detailPath = "/api/categories/" + category.getId();
+
+    mockMvc.perform(put(detailPath)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {"name":"Makan dan Minum","type":"EXPENSE","budget":1500000,"icon":"utensils","color":"#F97316"}
+                """)
+            .header("Authorization", "Bearer test"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.budget").value(1500000))
+        .andExpect(jsonPath("$.data.icon").value("utensils"))
+        .andExpect(jsonPath("$.data.color").value("#F97316"));
+
+    for (boolean deleted : List.of(false, true)) {
+        Transaction transaction = new Transaction();
+        transaction.setTransactionCode("budget-test-" + deleted);
+        transaction.setTransactionName("Belanja");
+        transaction.setUser(user);
+        transaction.setCategory(category);
+        transaction.setTransactionDate(LocalDateTime.of(2025, 1, 1, 10, 0));
+        transaction.setAmount(BigDecimal.valueOf(1_600_000));
+        transaction.setDeleted(deleted);
+        transactionRepository.save(transaction);
+    }
+
+    mockMvc.perform(get(detailPath).header("Authorization", "Bearer test"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.budget").value(1500000))
+        .andExpect(jsonPath("$.data.totalExpense").value(1600000.0))
+        .andExpect(jsonPath("$.data.remainingBudget").value(-100000.0));
+
+    mockMvc.perform(get("/api/categories").param("skip", "0").param("limit", "10")
+            .header("Authorization", "Bearer test"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data[0].budget").value(1500000))
+        .andExpect(jsonPath("$.data[0].totalExpense").value(1600000.0))
+        .andExpect(jsonPath("$.data[0].remainingBudget").value(-100000.0))
+        .andExpect(jsonPath("$.data[0].icon").value("utensils"))
+        .andExpect(jsonPath("$.data[0].color").value("#F97316"));
+}
 
 @Test
 void testGetSingleCategoryNotFound() throws Exception {

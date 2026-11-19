@@ -1,0 +1,4 @@
+ALTER TABLE categories
+    ADD COLUMN budget BIGINT,
+    ADD COLUMN icon VARCHAR(255),
+    ADD COLUMN color VARCHAR(7);
