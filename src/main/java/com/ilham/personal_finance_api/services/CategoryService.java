@@ -7,7 +7,9 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -21,6 +23,7 @@ import org.springframework.data.domain.Page;
 import com.ilham.personal_finance_api.entity.Category;
 import com.ilham.personal_finance_api.entity.User;
 import com.ilham.personal_finance_api.exception.DataAlreadyExistedException;
+import com.ilham.personal_finance_api.dto.CategoryRequest;
 import com.ilham.personal_finance_api.dto.CategoryResponse;
 import com.ilham.personal_finance_api.dto.CategoryStatPeriod;
 import com.ilham.personal_finance_api.dto.CategoryStatisticResponse;
@@ -32,6 +35,7 @@ import com.ilham.personal_finance_api.dto.TransactionType;
 import com.ilham.personal_finance_api.dto.UpdateCategoryRequest;
 import com.ilham.personal_finance_api.repository.CategoryRepository;
 import com.ilham.personal_finance_api.repository.TransactionRepository;
+import com.ilham.personal_finance_api.repository.TransactionRepository.CategoryExpenseTotal;
 
 
 
@@ -57,25 +61,35 @@ public class CategoryService {
     @Transactional 
     public CreateCategoryResponse create(User user ,CreateCategoryRequest request) {
 
-            validationService.validate(request);
+        validationService.validate(request);
+        validateBudgetType(request);
 
-            String name = request.getName().trim();
-            String type = request.getType().name();
-            if (categoryRepository.existsByUserAndNameIgnoreCaseAndTypeAndIsDeletedFalse(user, name, type)) {
-                throw new DataAlreadyExistedException(CATEGORY_ALREADY_EXISTS);
-            }
+        if (request.getType() == TransactionType.EXPENSE && request.getBudget() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Budget is required for EXPENSE categories");
+        }
 
-                    Category category = new Category();
-                    category.setName(name);
-                    category.setUser(user);
-                    category.setType(type);
-                    saveCategory(category);
+        String name = request.getName().trim();
+        String type = request.getType().name();
+        if (categoryRepository.existsByUserAndNameIgnoreCaseAndTypeAndIsDeletedFalse(user, name, type)) {
+            throw new DataAlreadyExistedException(CATEGORY_ALREADY_EXISTS);
+        }
 
-                    CreateCategoryResponse response = new CreateCategoryResponse();
-                    response.setName(category.getName());
-                    response.setType(category.getType());
-                    return response;
-                
+        Category category = new Category();
+        category.setName(name);
+        category.setUser(user);
+        category.setType(type);
+        category.setBudget(request.getBudget());
+        category.setIcon(request.getIcon());
+        category.setColor(request.getColor());
+        saveCategory(category);
+
+        CreateCategoryResponse response = new CreateCategoryResponse();
+        response.setName(category.getName());
+        response.setType(category.getType());
+        response.setBudget(category.getBudget());
+        response.setIcon(category.getIcon());
+        response.setColor(category.getColor());
+        return response;
     }
 
     @Transactional(readOnly = true)
@@ -83,7 +97,7 @@ public class CategoryService {
         
         Category category = categoryRepository.findByIdAndUser(id, user)
        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Category not found"));
-         return toCategoryResponse(category);
+        return toCategoryResponseWithBudget(category, expenseTotals(user, List.of(category)));
     }
 
 
@@ -109,16 +123,44 @@ public class CategoryService {
             Page<Category> categories =
             categoryRepository.findAllByUserAndIsDeletedFalse(user, pageable);
 
-        return categories.map(this::toCategoryResponse);
+        Map<UUID, BigDecimal> totals = expenseTotals(user, categories.getContent());
+        return categories.map(category -> toCategoryResponseWithBudget(category, totals));
     }
 
 
+
+    private Map<UUID, BigDecimal> expenseTotals(User user, List<Category> categories) {
+        List<UUID> categoryIds = categories.stream()
+            .filter(category -> TransactionType.EXPENSE.name().equals(category.getType()))
+            .map(Category::getId)
+            .toList();
+        if (categoryIds.isEmpty()) {
+            return Map.of();
+        }
+        return transactionRepository.sumExpensesByCategory(user, categoryIds).stream()
+            .collect(Collectors.toMap(CategoryExpenseTotal::getCategoryId, CategoryExpenseTotal::getTotalExpense));
+    }
+
+    private CategoryResponse toCategoryResponseWithBudget(Category category, Map<UUID, BigDecimal> totals) {
+        CategoryResponse response = toCategoryResponse(category);
+        if (TransactionType.EXPENSE.name().equals(category.getType())) {
+            BigDecimal totalExpense = totals.getOrDefault(category.getId(), BigDecimal.ZERO);
+            response.setTotalExpense(totalExpense);
+            if (category.getBudget() != null && category.getBudget() > 0) {
+                response.setRemainingBudget(BigDecimal.valueOf(category.getBudget()).subtract(totalExpense));
+            }
+        }
+        return response;
+    }
 
     private CategoryResponse toCategoryResponse(Category category) {
          CategoryResponse response = new CategoryResponse();
          response.setId(category.getId());
          response.setName(category.getName());
          response.setType(category.getType());
+         response.setBudget(category.getBudget());
+         response.setIcon(category.getIcon());
+         response.setColor(category.getColor());
          return response;
     }
 
@@ -132,6 +174,7 @@ public class CategoryService {
     @Transactional
     public CategoryResponse update(User user, UUID categoryId, UpdateCategoryRequest request) {
         validationService.validate(request);
+        validateBudgetType(request);
 
         Category category = categoryRepository.findByIdAndUser(categoryId, user)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Category not found"));
@@ -143,8 +186,25 @@ public class CategoryService {
 
         category.setName(name);
         category.setType(type);
+        if (request.getType() != TransactionType.EXPENSE) {
+            category.setBudget(null);
+        } else if (request.getBudget() != null) {
+            category.setBudget(request.getBudget());
+        }
+        if (request.getIcon() != null) {
+            category.setIcon(request.getIcon());
+        }
+        if (request.getColor() != null) {
+            category.setColor(request.getColor());
+        }
         saveCategory(category);
         return toCategoryResponse(category);
+    }
+
+    private void validateBudgetType(CategoryRequest request) {
+        if (request.getType() != TransactionType.EXPENSE && request.getBudget() != null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Budget is only allowed for EXPENSE categories");
+        }
     }
 
     // flush agar pelanggaran unique index (request bersamaan) langsung jadi 409, bukan 500 saat commit

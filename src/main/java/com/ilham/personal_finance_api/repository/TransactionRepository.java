@@ -28,6 +28,25 @@ public interface TransactionRepository extends JpaRepository<Transaction, String
     Optional<Transaction> findByUserAndTransactionCodeAndIsDeletedFalse(User user, String transactionCode);
     List<Transaction> findAllByUserAndTransactionCodeIn(User user, Collection<String> transactionCodes);
 
+    interface CategoryExpenseTotal {
+        UUID getCategoryId();
+        BigDecimal getTotalExpense();
+    }
+
+    @Query("""
+        SELECT t.category.id AS categoryId, SUM(t.amount) AS totalExpense
+        FROM Transaction t
+        WHERE t.user = :user
+        AND t.isDeleted = false
+        AND t.category.type = 'EXPENSE'
+        AND t.category.id IN :categoryIds
+        GROUP BY t.category.id
+        """)
+    List<CategoryExpenseTotal> sumExpensesByCategory(
+        @Param("user") User user,
+        @Param("categoryIds") Collection<UUID> categoryIds
+    );
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
         UPDATE Transaction t

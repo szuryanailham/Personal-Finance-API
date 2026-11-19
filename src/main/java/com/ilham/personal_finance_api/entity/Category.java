@@ -29,6 +29,9 @@ public class Category {
     private UUID id;
     private String name;
     private String type;
+    private Long budget;
+    private String icon;
+    private String color;
     @OneToMany(mappedBy = "category")
     private List<Transaction> transactions;
     @ManyToOne

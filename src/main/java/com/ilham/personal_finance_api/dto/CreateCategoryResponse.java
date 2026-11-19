@@ -7,6 +7,9 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor 
 
 public class CreateCategoryResponse {
- private String name;   
- private String type;
+    private String name;
+    private String type;
+    private Long budget;
+    private String icon;
+    private String color;
 }
