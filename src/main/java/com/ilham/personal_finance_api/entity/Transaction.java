@@ -44,6 +44,9 @@ public class Transaction {
     @Column(name = "transaction_date")
     private LocalDateTime transactionDate;
     private boolean isDeleted;
+
+    @Column(name = "funded_from_main", nullable = false)
+    private boolean fundedFromMain;
      
 
 }
