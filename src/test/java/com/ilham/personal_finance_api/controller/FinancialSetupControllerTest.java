@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -18,12 +19,12 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -429,16 +430,117 @@ public class FinancialSetupControllerTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void testSavingAddsToSavingsWithoutTouchingMain() throws Exception {
+    void testSavingMovesMoneyFromMainToSavings() throws Exception {
         perform(putSetup("{\"balance\":1000000}"), status().isOk());
         Category saving = createCategory("Tabungan", TransactionType.SAVING);
 
-        createTransaction(saving, "300000").andExpect(status().isOk());
+        createTransaction(saving, "500000").andExpect(status().isOk());
 
+        assertCurrentBalances(500000, 500000);
+        assertTrue(transactionRepository.findAll().getFirst().isFundedFromMain());
+        mockMvc.perform(withAuth(get("/api/transaction/stat")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.totalBalance.amount").value(500000))
+            .andExpect(jsonPath("$.data.totalSaving.amount").value(500000));
+    }
+
+    @Test
+    void testSavingRequiresPositiveAmountAndSufficientMainBalance() throws Exception {
+        perform(putSetup("{\"balance\":1000000}"), status().isOk());
+        Category saving = createCategory("Tabungan", TransactionType.SAVING);
+
+        createTransaction(saving, "0").andExpect(status().isBadRequest());
+        createTransaction(saving, "-1").andExpect(status().isBadRequest());
+        createTransaction(saving, "0.001").andExpect(status().isBadRequest());
+        createTransaction(saving, "1000000.01").andExpect(status().isConflict());
+        assertEquals(0, transactionRepository.count());
+        assertCurrentBalances(1000000, 0);
+
+        createTransaction(saving, "1000000").andExpect(status().isOk());
+        createTransaction(saving, "1").andExpect(status().isConflict());
+        assertEquals(1, transactionRepository.count());
+        assertCurrentBalances(0, 1000000);
+    }
+
+    @Test
+    void testConcurrentSavingsCannotSpendTheSameBalance() throws Exception {
+        perform(putSetup("{\"balance\":1000000}"), status().isOk());
+        Category saving = createCategory("Tabungan", TransactionType.SAVING);
+        CountDownLatch start = new CountDownLatch(1);
+        Callable<Integer> save = () -> {
+            start.await();
+            return createTransaction(saving, "600000").andReturn().getResponse().getStatus();
+        };
+
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<Integer> first = executor.submit(save);
+            Future<Integer> second = executor.submit(save);
+            start.countDown();
+            List<Integer> statuses = List.of(first.get(15, TimeUnit.SECONDS), second.get(15, TimeUnit.SECONDS));
+            assertTrue(statuses.containsAll(List.of(200, 409)), statuses.toString());
+        }
+
+        assertEquals(1, transactionRepository.count());
+        assertCurrentBalances(400000, 600000);
+    }
+
+    @Test
+    void testExpenseConversionUsesFundsFromTheOriginalExpense() throws Exception {
+        perform(putSetup("{\"balance\":500000}"), status().isOk());
+        Category expense = createCategory("Expense", TransactionType.EXPENSE);
+        Category saving = createCategory("Tabungan", TransactionType.SAVING);
+        createTransaction(expense, "500000").andExpect(status().isOk());
+        String code = transactionRepository.findAll().getFirst().getTransactionCode();
+
+        updateTransaction(code, Map.of("categoryId", saving.getId(), "amount", 500001))
+            .andExpect(status().isConflict());
+        assertEquals(expense.getId(), transactionRepository.findAll().getFirst().getCategory().getId());
+        assertCurrentBalances(0, 0);
+
+        updateTransaction(code, Map.of("categoryId", saving.getId())).andExpect(status().isOk());
+        assertCurrentBalances(0, 500000);
+        updateTransaction(code, Map.of("amount", 500001)).andExpect(status().isConflict());
+        assertCurrentBalances(0, 500000);
+
+        mockMvc.perform(withAuth(delete("/api/transaction/" + code))).andExpect(status().isOk());
+        assertCurrentBalances(500000, 0);
+    }
+
+    @Test
+    void testBulkExpenseConversionValidatesTheBatchBalance() throws Exception {
+        perform(putSetup("{\"balance\":0,\"savings\":0}"), status().isOk());
+        Category income = createCategory("Income", TransactionType.INCOME);
+        Category expense = createCategory("Expense", TransactionType.EXPENSE);
+        Category saving = createCategory("Tabungan", TransactionType.SAVING);
+        createTransaction(income, "500000").andExpect(status().isOk());
+        createTransaction(expense, "500000").andExpect(status().isOk());
+
+        var transactions = transactionRepository.findAll();
+        var allCodes = transactions.stream().map(transaction -> transaction.getTransactionCode()).toList();
+        var expenseCodes = transactions.stream()
+            .filter(transaction -> expense.getId().equals(transaction.getCategory().getId()))
+            .map(transaction -> transaction.getTransactionCode()).toList();
+
+        updateTransaction("bulk", Map.of("categoryId", saving.getId(), "transactionCodes", allCodes))
+            .andExpect(status().isConflict());
+        assertCurrentBalances(0, 0);
+
+        updateTransaction("bulk", Map.of("categoryId", saving.getId(), "transactionCodes", expenseCodes))
+            .andExpect(status().isOk());
+        assertCurrentBalances(0, 500000);
+    }
+
+    private ResultActions updateTransaction(String path, Map<String, ?> body) throws Exception {
+        return mockMvc.perform(withAuth(patch("/api/transaction/" + path))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(objectMapper.writeValueAsString(body)));
+    }
+
+    private void assertCurrentBalances(long main, long savings) throws Exception {
         FinancialSetupResponse setup = getSetup();
-        assertAmount("1000000", account(setup, AccountType.MAIN).getCurrentBalance(), "MAIN");
-        assertAmount("300000", account(setup, AccountType.SAVINGS).getCurrentBalance(), "SAVINGS");
-        assertAmount("1300000", setup.getTotalBalance(), "total");
+        assertAmount(Long.toString(main), account(setup, AccountType.MAIN).getCurrentBalance(), "MAIN");
+        assertAmount(Long.toString(savings), account(setup, AccountType.SAVINGS).getCurrentBalance(), "SAVINGS");
+        assertAmount(Long.toString(main + savings), setup.getTotalBalance(), "total");
     }
 
     @Test

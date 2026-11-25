@@ -1,0 +1,1 @@
+ALTER TABLE transactions ADD COLUMN funded_from_main BOOLEAN NOT NULL DEFAULT FALSE;

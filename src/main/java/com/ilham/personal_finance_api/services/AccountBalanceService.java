@@ -21,7 +21,7 @@ import com.ilham.personal_finance_api.repository.TransferRepository;
 /**
  * Satu-satunya tempat perhitungan saldo akun. Akun sebuah transaksi ditentukan oleh type category-nya:
  *
- * MAIN    = opening + INCOME - EXPENSE + transfer masuk - transfer keluar
+ * MAIN    = opening + INCOME - EXPENSE - funded SAVING + transfer masuk - transfer keluar
  * SAVINGS = opening + SAVING           + transfer masuk - transfer keluar
  *
  * Transfer hanya memindahkan dana antar akun, sehingga tidak mengubah total saldo user.
@@ -71,7 +71,9 @@ public class AccountBalanceService {
     // [HELPER] pengaruh transaksi (INCOME / EXPENSE / SAVING) terhadap saldo akun
     private BigDecimal transactionTotal(User user, AccountType accountType) {
         return switch (accountType) {
-            case MAIN -> sumByType(user, TransactionType.INCOME).subtract(sumByType(user, TransactionType.EXPENSE));
+            case MAIN -> sumByType(user, TransactionType.INCOME)
+                .subtract(sumByType(user, TransactionType.EXPENSE))
+                .subtract(transactionRepository.sumFundedSavings(user));
             case SAVINGS -> sumByType(user, TransactionType.SAVING);
         };
     }

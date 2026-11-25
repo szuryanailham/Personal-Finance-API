@@ -37,6 +37,14 @@ public class AccountService {
         return accountRepository.findAllByUserOrderByAccountTypeAsc(user);
     }
 
+    public Account lockMain(User user) {
+        return accountRepository.findByUserAndAccountType(user, AccountType.MAIN)
+            .orElseGet(() -> {
+                ensureDefaultAccounts(user);
+                return accountRepository.findByUserAndAccountType(user, AccountType.MAIN).orElseThrow();
+            });
+    }
+
     // [HELPER]
     public Account findByType(List<Account> accounts, AccountType type) {
         return accounts.stream()

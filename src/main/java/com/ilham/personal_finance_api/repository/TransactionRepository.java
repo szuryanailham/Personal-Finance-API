@@ -127,6 +127,27 @@ public interface TransactionRepository extends JpaRepository<Transaction, String
         """)
     BigDecimal sumAmountByType(@Param("user") User user, @Param("type") String type);
 
+    @Query("""
+        SELECT COALESCE(SUM(t.amount), 0)
+        FROM Transaction t
+        WHERE t.user = :user
+        AND t.category.type = 'SAVING'
+        AND t.fundedFromMain = true
+        AND t.isDeleted = false
+        """)
+    BigDecimal sumFundedSavings(@Param("user") User user);
+
+    @Query("""
+        SELECT COALESCE(SUM(t.amount), 0)
+        FROM Transaction t
+        WHERE t.user = :user
+        AND t.category.type = 'SAVING'
+        AND t.fundedFromMain = true
+        AND t.isDeleted = false
+        AND t.transactionDate < :end
+        """)
+    BigDecimal sumFundedSavingsBefore(@Param("user") User user, @Param("end") LocalDateTime end);
+
     // untuk saldo akun pada suatu waktu: seluruh transaksi aktif sebelum :end (eksklusif)
     @Query("""
         SELECT COALESCE(SUM(t.amount), 0)

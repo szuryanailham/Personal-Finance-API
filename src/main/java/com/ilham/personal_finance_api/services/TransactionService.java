@@ -73,6 +73,9 @@ public class TransactionService {
     private AccountService accountService;
 
     @Autowired
+    private AccountBalanceService accountBalanceService;
+
+    @Autowired
     private Clock clock;
 
     // [MAIN] create transaction
@@ -84,11 +87,19 @@ public class TransactionService {
         Category category = categoryRepository.findByIdAndUserAndIsDeletedFalse(request.getCategoryId(), user)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Category not found"));
 
+        boolean saving = isSaving(category);
+        if (saving) {
+            validateSavingAmount(request.getAmount());
+            Account main = accountService.lockMain(user);
+            requireAvailableBalance(mainBalance(user, main).subtract(request.getAmount()));
+        }
+
         String transactionCode = transactionCodeGenerator.generate();
         Transaction transaction = new Transaction();
         transaction.setTransactionName(request.getTransactonName());
         transaction.setTransactionCode(transactionCode);
         transaction.setCategory(category);
+        transaction.setFundedFromMain(saving);
         transaction.setUser(user);
         transaction.setAmount(request.getAmount());
         transaction.setDescription(request.getDescription());
@@ -163,19 +174,15 @@ public class TransactionService {
     }
 
     // [MAIN] delete transaction
-@Transactional
-public void delete(User user, String transactionCode) {
-    Transaction transaction = transactionRepository
+    @Transactional
+    public void delete(User user, String transactionCode) {
+        accountService.lockMain(user);
+        Transaction transaction = transactionRepository
             .findByUserAndTransactionCodeAndIsDeletedFalse(user, transactionCode)
-            .orElseThrow(() ->
-                    new ResponseStatusException(
-                            HttpStatus.NOT_FOUND,
-                            "Transaction not found"
-                    )
-            );
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Transaction not found"));
 
-    transaction.setDeleted(true);
-}
+        transaction.setDeleted(true);
+    }
 
     // [MAIN] bulk delete transaction (soft delete)
     // partial: code yang tidak ditemukan / sudah terhapus di-skip, sisanya tetap dihapus.
@@ -183,6 +190,7 @@ public void delete(User user, String transactionCode) {
     public BulkDeleteTransactionResponse bulkDelete(User user, BulkDeleteTransactionRequest request) {
         validationService.validate(request);
 
+        accountService.lockMain(user);
         Set<String> requestedCodes = new LinkedHashSet<>(request.getTransactionCodes());
 
         Set<String> deletableCodes = transactionRepository.findAllByUserAndTransactionCodeIn(user, requestedCodes).stream()
@@ -216,12 +224,28 @@ public void delete(User user, String transactionCode) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "At least one field to update must be provided");
         }
 
+        Account main = accountService.lockMain(user);
         Set<String> codes = new LinkedHashSet<>(request.getTransactionCodes());
         Map<String, Transaction> transactionsByCode = loadActiveTransactions(user, codes);
 
         Category category = request.getCategoryId() == null
             ? null
             : loadCategories(user, Set.of(request.getCategoryId())).get(request.getCategoryId());
+
+        if (isSaving(category)) {
+            BigDecimal balanceChange = BigDecimal.ZERO;
+            boolean hasConversion = false;
+            for (Transaction transaction : transactionsByCode.values()) {
+                if (isExpense(transaction.getCategory())) {
+                    validateSavingAmount(transaction.getAmount());
+                    hasConversion = true;
+                }
+                balanceChange = balanceChange.add(mainBalanceChange(transaction, category, transaction.getAmount()));
+            }
+            if (hasConversion) {
+                requireAvailableBalance(mainBalance(user, main).add(balanceChange));
+            }
+        }
 
         transactionsByCode.values().forEach(transaction -> applyUpdate(transaction, request, category));
         return transactionsByCode.size();
@@ -252,6 +276,7 @@ public void delete(User user, String transactionCode) {
             transaction.setDescription(request.getDescription());
         }
         if (category != null) {
+            transaction.setFundedFromMain(isFundedSaving(transaction, category));
             transaction.setCategory(category);
         }
         if (request.getDate() != null) {
@@ -259,54 +284,96 @@ public void delete(User user, String transactionCode) {
         }
     }
 
-// [MAIN] update transaction
+    // [MAIN] update transaction
+    @Transactional
+    public TransactionResponse update(User user, String transactionCode, UpdateTransactionRequest request) {
+        validationService.validate(request);
+        Account main = accountService.lockMain(user);
 
-@Transactional
-public TransactionResponse update(User user, String transactionCode, UpdateTransactionRequest request) {
+        Transaction transaction = transactionRepository
+            .findByUserAndTransactionCodeAndIsDeletedFalse(user, transactionCode)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Transaction not found"));
 
-    validationService.validate(request);
+        Category category = request.getCategoryId() == null
+            ? transaction.getCategory()
+            : categoryRepository.findByIdAndUserAndIsDeletedFalse(request.getCategoryId(), user)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Category not found"));
+        BigDecimal amount = request.getAmount() == null ? transaction.getAmount() : request.getAmount();
+        boolean fundedSaving = isFundedSaving(transaction, category);
 
-    Transaction transaction = transactionRepository
-        .findByUserAndTransactionCodeAndIsDeletedFalse(user, transactionCode)
-        .orElseThrow(() ->
-            new ResponseStatusException(
-                HttpStatus.NOT_FOUND,
-                "Transaction not found"
-            )
-        );
+        if (fundedSaving && (request.getAmount() != null || isExpense(transaction.getCategory()))) {
+            validateSavingAmount(amount);
+            BigDecimal balanceChange = mainBalanceChange(transaction, category, amount);
+            if (balanceChange.signum() < 0 || isExpense(transaction.getCategory())) {
+                requireAvailableBalance(mainBalance(user, main).add(balanceChange));
+            }
+        }
 
-    if (request.getTransactonName() != null) {
-        transaction.setTransactionName(request.getTransactonName());
+        if (request.getTransactonName() != null) {
+            transaction.setTransactionName(request.getTransactonName());
+        }
+        if (request.getCategoryId() != null) {
+            transaction.setCategory(category);
+        }
+        if (request.getDescription() != null) {
+            transaction.setDescription(request.getDescription());
+        }
+        if (request.getAmount() != null) {
+            transaction.setAmount(amount);
+        }
+        if (request.getDate() != null) {
+            transaction.setTransactionDate(request.getDate().atStartOfDay());
+        }
+        transaction.setFundedFromMain(fundedSaving);
+        return toTransactionResponse(transaction, category);
     }
 
-    if (request.getCategoryId() != null) {
-        Category category = categoryRepository
-            .findByIdAndUserAndIsDeletedFalse(request.getCategoryId(), user)
-            .orElseThrow(() ->
-                new ResponseStatusException(
-                    HttpStatus.NOT_FOUND,
-                    "Category not found"
-                )
-            );
-
-        transaction.setCategory(category);
+    private boolean isSaving(Category category) {
+        return category != null && TransactionType.SAVING.name().equals(category.getType());
     }
 
-    if (request.getDescription() != null) {
-        transaction.setDescription(request.getDescription());
+    private boolean isExpense(Category category) {
+        return category != null && TransactionType.EXPENSE.name().equals(category.getType());
     }
 
-    if (request.getAmount() != null) {
-        transaction.setAmount(request.getAmount());
+    private boolean isFundedSaving(Transaction transaction, Category category) {
+        Category previousCategory = transaction.getCategory();
+        return isSaving(category) && (isExpense(previousCategory)
+            || (isSaving(previousCategory) && transaction.isFundedFromMain()));
     }
 
-    if (request.getDate() != null) {
-        transaction.setTransactionDate(request.getDate().atStartOfDay());
+    private BigDecimal mainBalanceChange(Transaction transaction, Category category, BigDecimal amount) {
+        BigDecimal previous = mainContribution(transaction.getCategory(), transaction.getAmount(),
+            transaction.isFundedFromMain());
+        return mainContribution(category, amount, isFundedSaving(transaction, category)).subtract(previous);
     }
 
-    return toTransactionResponse(transaction, transaction.getCategory());
-}
+    private BigDecimal mainContribution(Category category, BigDecimal amount, boolean fundedFromMain) {
+        return switch (TransactionType.valueOf(category.getType())) {
+            case INCOME -> amount;
+            case EXPENSE -> amount.negate();
+            case SAVING -> fundedFromMain ? amount.negate() : BigDecimal.ZERO;
+        };
+    }
 
+    private BigDecimal mainBalance(User user, Account main) {
+        return accountBalanceService.getBalance(user, List.of(main), main);
+    }
+
+    private void validateSavingAmount(BigDecimal amount) {
+        if (amount.signum() <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Savings amount must be positive");
+        }
+        if (amount.stripTrailingZeros().scale() > 2) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Savings amount must have at most two decimal places");
+        }
+    }
+
+    private void requireAvailableBalance(BigDecimal remainingBalance) {
+        if (remainingBalance.signum() < 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Insufficient balance in MAIN account");
+        }
+    }
 
 // [MAIN] get single transaction
 
@@ -422,11 +489,12 @@ public TransactionResponse get(User user , String transactionCode) {
     // [HELPER]
     private record PeriodTotals(BigDecimal income, BigDecimal expense) {}
 
-    // [HELPER] MAIN = saldo awal + INCOME - EXPENSE (transaksi sebelum asOf)
+    // [HELPER] MAIN = saldo awal + INCOME - EXPENSE - funded SAVING (sebelum asOf)
     private BigDecimal mainBalanceAsOf(User user, Account main, LocalDateTime asOf) {
         return main.getOpeningBalance()
             .add(sumAmountBefore(user, TransactionType.INCOME, asOf))
-            .subtract(sumAmountBefore(user, TransactionType.EXPENSE, asOf));
+            .subtract(sumAmountBefore(user, TransactionType.EXPENSE, asOf))
+            .subtract(transactionRepository.sumFundedSavingsBefore(user, asOf));
     }
 
     // [HELPER] SAVINGS = saldo awal + SAVING (transaksi sebelum asOf)
